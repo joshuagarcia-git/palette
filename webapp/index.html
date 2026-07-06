@@ -1343,7 +1343,8 @@ const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT
  * ARRIVAL STORYBOARD — every intro-in / intro→app timing lives in ARRIVE.
  *
  * PAGE LOAD (waits for the webfont; 1.5s safety):
- *     0ms   wordmark blooms in — rises 8px, scale .98 → 1, soft overshoot
+ *     0ms   wordmark fades in, rising 8px — clean deceleration, NO overshoot
+ *           (type must land crisp and stay put; bounce reads as wobble on letterforms)
  *   120ms   tagline follows
  *   240ms   Play follows
  *
@@ -1356,7 +1357,7 @@ const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT
  * ─────────────────────────────────────────────────────────────────────────── */
 const ARRIVE = {
   fontWaitMs: 1500,                                                       // webfont safety timeout
-  entrance: { rise:8, scale:0.98, fade:0.55, settle:0.7, stagger:0.12 },  // lockup bloom-in
+  entrance: { rise:8, fade:0.55, settle:0.7, stagger:0.12 },              // lockup fade+rise (no scale/overshoot)
   exitMs: 700,                                                            // intro note bloom-out
   fade:   0.45,                                                           // intro overlay crossfade
   settle: 0.85,                                                           // canvas scaleY settle
@@ -1364,19 +1365,21 @@ const ARRIVE = {
 };
 introState.EXIT_MS = ARRIVE.exitMs;
 
-// The lockup blooms in the way painted notes do — one quiet staggered breath,
-// gated on the webfont (never animate through a font swap) and skipped
-// entirely under prefers-reduced-motion.
+// The lockup fades in on one quiet staggered rise — gated on the webfont (never
+// animate through a font swap) and skipped entirely under prefers-reduced-motion.
+// Deliberately NO scale or overshoot: bounce suits the painted notes, but type has
+// to arrive once, crisply, and stay put (an overshoot on letterforms reads as
+// wobble, and its slow sub-pixel tail shimmers the glyph edges).
 (function introEntrance(){
   if (typeof gsap === 'undefined' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const els = [document.getElementById('startTitle'), document.getElementById('startTag'),
                document.querySelector('#start button')].filter(Boolean);
   if (els.length !== 3) return;
   const E = ARRIVE.entrance;
-  gsap.set(els, { opacity:0, y:E.rise, scale:E.scale });
-  const go = ()=>{   // overshoot belongs to the movement, not the opacity — two parallel tweens
+  gsap.set(els, { opacity:0, y:E.rise });
+  const go = ()=>{
     gsap.to(els, { opacity:1, duration:E.fade, ease:'power2.out', stagger:E.stagger });
-    gsap.to(els, { y:0, scale:1, duration:E.settle, ease:'back.out(1.7)', stagger:E.stagger, clearProps:'transform' });
+    gsap.to(els, { y:0, duration:E.settle, ease:'power3.out', stagger:E.stagger, clearProps:'transform' });
   };
   Promise.race([document.fonts.ready, new Promise(r=>setTimeout(r, ARRIVE.fontWaitMs))]).then(go);
 })();
