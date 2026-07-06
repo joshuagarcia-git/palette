@@ -1,0 +1,14 @@
+Copyright (c) 2026 Joshua Garcia. All rights reserved.
+
+The source code in this repository is published for viewing and personal
+experimentation. No license is granted for reuse, modification, or
+redistribution without written permission.
+
+Third-party assets and libraries bundled in this repository are licensed
+separately by their authors:
+
+- Salamander Grand Piano by Alexander Holm (webapp/samples/piano/) —
+  Creative Commons Attribution 3.0 (CC-BY 3.0)
+- Tone.js (webapp/tone.js) — MIT License, (c) Yotam Mann
+- GSAP (webapp/gsap.min.js) — GSAP Standard License (gsap.com/licensing)
+- Work Sans — SIL Open Font License 1.1, streamed from Google Fonts

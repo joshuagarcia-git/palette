@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Palette favicon: three equally-spaced mood-color bars, transparent background -->
+  <rect x="4.5"  y="5" width="6" height="22" rx="2.5" fill="#1f8fe0"/>
+  <rect x="13"   y="5" width="6" height="22" rx="2.5" fill="#1f9e57"/>
+  <rect x="21.5" y="5" width="6" height="22" rx="2.5" fill="#d8324a"/>
+</svg>

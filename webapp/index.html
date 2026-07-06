@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Palette</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  /* Work Sans, self-hosted (like the piano) so the app is fully offline. One variable
+     woff2 covers every weight we use (400–700), latin subset. License: fonts/OFL.txt. */
+  @font-face { font-family:'Work Sans'; font-style:normal; font-weight:400 700;
+    font-display:swap; src:url('fonts/work-sans.woff2') format('woff2'); }
+  /* the SURROUND is an Albers ground: a deep, clearly-colored dark of the field's own hue
+     (dark blue / dark green / dark red, set per mood + per intro frame) — a same-hue dark
+     ground makes the bright field luminous where neutral black would just frame it. */
+  :root { --bg:hsl(205 45% 10%); --accent:#1f8fe0; --field-r:108px;
+    /* per-mood tinted chrome: dark neutrals pick up the mood's TEMPERATURE (cool on blue, warm on red),
+       kept dark + low-sat so they stay machined-neutral. --btn-* = the tool knobs + intro Play puck;
+       --dock-* = the undo toast. Set by selectMood AND the intro's mood cycle; defaults = blue. */
+    --dock-hi:hsl(205 15% 10.5%); --dock-lo:hsl(205 18% 7%);
+    --btn-hi:hsl(205 15% 12.5%);  --btn-lo:hsl(205 17% 9.5%);
+    /* ---- Type scale on a 2px grid --------------------------------------------
+       Every resolved size is an EVEN INTEGER at any viewport. The small steps sit
+       FIXED on the 10/12/14/16 ladder (their old fluid range was under 1.5px —
+       micro-fluidity that only produced fractional sizes). The display steps stay
+       fluid and are snapped to 2px in the @supports block below. */
+    --text-2xs:     10px;                                    /* eyebrows, captions, meta, tempo */
+    --text-xs:      12px;                                    /* secondary text (artist/desc, credits) */
+    --text-sm:      14px;                                    /* list/menu rows, dense UI */
+    --text-base:    16px;                                    /* body / default */
+    --text-lg:      clamp(16px,   0.85rem + 0.65vw, 18px);   /* primary button */
+    --text-xl:      clamp(20px,   1.05rem + 0.90vw, 26px);   /* section headings (About title) */
+    --text-lead:    clamp(16px,   0.40rem + 1.40vw, 26px);   /* intro tagline — 16px under the 44px phone title, 26px under the 88px wordmark */
+    --text-display: clamp(44px,   9vw, 88px); }              /* the wordmark */
+  /* fluid steps snap to the 2px grid (evergreen browsers; older ones get the raw clamp) */
+  @supports (font-size: round(nearest, 16px, 2px)) {
+    :root {
+      --text-lg:      round(nearest, clamp(16px, 0.85rem + 0.65vw, 18px), 2px);
+      --text-xl:      round(nearest, clamp(20px, 1.05rem + 0.90vw, 26px), 2px);
+      --text-lead:    round(nearest, clamp(16px, 0.40rem + 1.40vw, 26px), 2px);
+      --text-display: round(nearest, clamp(44px, 9vw, 88px), 2px);
+    }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; height:100dvh; background:var(--bg); color:#e9e2d8; transition:background .4s;
+    font-family:'Work Sans', -apple-system, system-ui, sans-serif; font-size:var(--text-base);
+    overscroll-behavior:none; overflow:hidden;
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility; }
+  body { display:flex; flex-direction:column; }
+  /* one global grit layer over the whole app (soft-light) so the dark ground and the
+     knobs share the canvas's grain and read as one material */
+  body::after { content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+    mix-blend-mode:soft-light; opacity:0.5; background-size:180px 180px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  /* During the intro→app entrance, drop the mix-blend grain layers: animating opacity/layout UNDER a
+     full-screen mix-blend-mode overlay forces a per-pixel re-blend EVERY frame (the main source of the
+     choppy entrance). Restored the moment the entrance finishes. */
+  body.entering::after, body.entering #grain { display:none; }
+
+  #start { flex:1; position:relative; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; }
+  /* the intro mirrors the canvas: blurred mood field clipped to the rounded rect, inset 8px */
+  #startBg { position:absolute; top:calc(8px + env(safe-area-inset-top)); left:8px; right:8px; bottom:8px; border-radius:var(--field-r); overflow:hidden; z-index:0;
+    box-shadow:0 2px 5px rgba(0,0,0,0.42), 0 12px 24px -8px rgba(0,0,0,0.50), 0 28px 50px -16px rgba(0,0,0,0.55); }
+  /* clip-path rounds the BLURRED field to the rect — on iOS `overflow:hidden` doesn't clip a filtered child
+     (the blur squared/bled past the corners). The ::before sits at inset:-90px, so inset 90px brings the clip
+     back to #startBg's box. Put clip-path on the CHILDREN (not #startBg) so its drop-shadow is preserved. */
+  #startBg::before { content:''; position:absolute; inset:-90px; filter:blur(72px);
+    background: radial-gradient(72% 72% at 50% 42%, var(--intro-c0,#54b6e3), var(--intro-c1,#1f8fe0) 50%, var(--intro-c2,#1568bc));
+    clip-path: inset(90px round var(--field-r)); }
+  /* living preview: a blurry, drifting painting (note layout from the densest song) */
+  #introCv { position:absolute; inset:0; width:100%; height:100%; display:block;
+    border-radius:inherit; filter:blur(4px); z-index:1; clip-path: inset(0 round var(--field-r)); }
+  /* intro type = WHITE TINTED BY THE FIELD: white carrying an 8% mix of the field's current
+     color (JS updates it each frame as the field cycles; the static color below is the blue
+     start state). Only a whisper of shadow — near-white type on bright fields needs no halo.
+     Spacing groups [title+tagline] as one lockup, with clear air before the Play action. */
+  #startTitle { position:relative; z-index:1; margin:0; color:#e9f9ff; font-weight:600;
+    font-size:var(--text-display); letter-spacing:-0.02em; line-height:1; text-wrap:balance;
+    text-shadow:0 1px 2px rgba(20,30,45,0.16); }
+  #startTag { position:relative; z-index:1; margin:0 0 20px; color:#e9f9ff;
+    font-size:var(--text-lead); font-weight:500; letter-spacing:.2px; text-wrap:balance;
+    text-shadow:0 1px 2px rgba(20,30,45,0.14); }
+  /* Play = a dark machined puck on the tool-knob chrome variables, so its dark tempers to the
+     field as the intro cycles (cool on blue, warm on red) — same system as the tool buttons. */
+  #start button { position:relative; z-index:1; display:inline-flex; align-items:center; justify-content:center;
+    min-height:48px; font-size:var(--text-lg); padding:16px 40px; border-radius:40px; border:none;
+    background:linear-gradient(180deg,var(--btn-hi),var(--btn-lo)); color:#e9e2d8; font-weight:600; letter-spacing:.3px; cursor:pointer;
+    transition:background .4s;
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.12), inset 0 -1px 1px rgba(0,0,0,0.5),
+      0 4px 14px rgba(0,0,0,0.40), 0 0 0 1px rgba(0,0,0,0.6); }
+  #start button:active { transform:translateY(0.5px) scale(0.98);
+    background:linear-gradient(180deg,var(--btn-lo),var(--btn-hi));
+    box-shadow: inset 0 1.5px 3px rgba(0,0,0,0.6), inset 0 -1px 0.5px rgba(255,255,255,0.08), 0 0 0 1px rgba(0,0,0,0.6); }
+  #start button:focus-visible { outline:2px solid rgba(255,255,255,0.85); outline-offset:3px; }   /* keyboard a11y */
+
+  /* The note canvas is a large rounded rectangle filling the screen; the color
+     palette and tools overlay it. */
+  #app { flex:1; min-height:0; display:none; position:relative; }
+  #canvasWrap { position:absolute; top:calc(8px + env(safe-area-inset-top)); left:8px; right:8px; bottom:calc(var(--dock-gap, 96px) + env(safe-area-inset-bottom)); border-radius:var(--field-r); overflow:hidden; background:#f0ede6;
+    box-shadow:0 2px 5px rgba(0,0,0,0.42), 0 12px 24px -8px rgba(0,0,0,0.50), 0 28px 50px -16px rgba(0,0,0,0.55); }
+  /* raised convex surface: top gloss, soft shade toward the bottom, lit rim */
+  #canvasWrap::after { content:''; position:absolute; inset:0; pointer-events:none; border-radius:inherit; z-index:2;
+    box-shadow:
+      inset 0 4px 4px rgba(255,255,255,0.34),
+      inset 0 -28px 44px -16px rgba(0,0,0,0.20),
+      inset 0 0 0 1px rgba(255,255,255,0.12); }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  #cv { cursor:crosshair; }   /* paint cursor ONLY on the app canvas; the intro canvas keeps the default cursor */
+  /* mood cross-fade: the OUTGOING field color sits on top and fades out to reveal the new
+     mood underneath — so switching moods morphs instead of hard-cutting. */
+  #moodFade { position:absolute; inset:0; pointer-events:none; opacity:0; z-index:4; border-radius:inherit; }
+  /* GPU-composited grain overlay — costs the render loop nothing */
+  #grain { position:absolute; inset:0; pointer-events:none; mix-blend-mode:soft-light;
+    opacity:0.5; background-repeat:repeat; background-size:200px 200px;
+    animation:grainshift 3s steps(1,end) infinite; }
+  @keyframes grainshift {
+    0%{background-position:0 0} 12%{background-position:-25px 12px} 25%{background-position:18px -22px}
+    37%{background-position:-12px 28px} 50%{background-position:30px 8px} 62%{background-position:-28px -14px}
+    75%{background-position:14px 22px} 87%{background-position:-20px -26px} 100%{background-position:0 0} }
+
+  /* the control deck: NO container — the Albers ground IS the chassis (Braun radio /
+     OP-1) and the controls mount straight onto it as knobs. The canvas is the screen's
+     only object. Grouping is spacing alone: 12px within a group, 28px between groups
+     (a 2×+ ratio groups by proximity, so no hairline dividers needed). */
+  .dock { position:absolute; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:5;
+    display:flex; align-items:center; gap:16px 28px; flex-wrap:wrap; justify-content:center;
+    max-width:calc(100% - 32px); }
+  .dock-group { display:flex; align-items:center; gap:12px; }
+
+  /* color swatches: full-color raised pucks; active = a white selection ring */
+  .swatch { position:relative; width:40px; height:40px; border-radius:50%; cursor:pointer; border:none;
+    background-color:var(--c,#888);
+    background-image: linear-gradient(180deg, rgba(255,255,255,0.20), rgba(0,0,0,0.20));
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.30),
+      0 1.5px 2.5px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.5);
+    transition: box-shadow .12s, transform .1s; }
+  .swatch.sel { box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.30),
+      0 1.5px 2.5px rgba(0,0,0,0.45),
+      0 0 0 1.5px rgba(0,0,0,0.6), 0 0 0 3px rgba(255,255,255,0.92); }
+  .swatch:active { transform: translateY(0.5px) scale(0.97);
+    box-shadow: inset 0 1.5px 3px rgba(0,0,0,0.4), inset 0 -1px 0.5px rgba(255,255,255,0.25), 0 0 0 1px rgba(0,0,0,0.5); }
+
+  /* tool buttons: machined aluminium pucks */
+  .iconbtn { width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(180deg,var(--btn-hi),var(--btn-lo)); color:#e9e2d8; cursor:pointer; user-select:none; border:none;
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.10), inset 0 -1px 1px rgba(0,0,0,0.5),
+      0 1.5px 2.5px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.6);
+    transition: box-shadow .12s, color .12s, transform .1s, background .12s; }
+  .iconbtn:active { transform: translateY(0.5px) scale(0.97);
+    background:linear-gradient(180deg,var(--btn-lo),var(--btn-hi));
+    box-shadow: inset 0 1.5px 3px rgba(0,0,0,0.6), inset 0 -1px 0.5px rgba(255,255,255,0.07),
+      0 0 0 1px rgba(0,0,0,0.6); }
+  .iconbtn svg { width:20px; height:20px; }
+  /* PLAY = the primary action → a mood-tinted puck (var --accent, set per mood in selectMood) so it
+     belongs to the field's color while standing out from the neutral tool buttons. Same flat-color
+     + gloss treatment as the color swatches, so it reads as part of that family. */
+  #playpause { color:#fff; background-color:var(--accent,#1f8fe0);
+    background-image:linear-gradient(180deg, rgba(255,255,255,0.22), rgba(0,0,0,0.20));
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.28),
+      0 1.5px 2.5px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.35); }
+  #playpause:active { transform:translateY(0.5px) scale(0.97);
+    background-image:linear-gradient(180deg, rgba(0,0,0,0.20), rgba(255,255,255,0.10));
+    box-shadow: inset 0 1.5px 3px rgba(0,0,0,0.32), inset 0 -1px 0.5px rgba(255,255,255,0.20), 0 0 0 1px rgba(0,0,0,0.4); }
+  #playpause .i-pause { display:none; }
+  #playpause.playing .i-play { display:none; }
+  #playpause.playing .i-pause { display:block; }
+
+  .tempo-row { display:flex; align-items:center; gap:8px; }
+  .tempo-row input[type=range] { -webkit-appearance:none; appearance:none; width:96px; height:18px;
+    background:transparent; cursor:pointer; --p:50%; }
+  /* recessed groove track, filled in the deck's ink color */
+  .tempo-row input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px;
+    background:linear-gradient(90deg,#d8d3cb 0 var(--p), #2b2621 var(--p) 100%);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.6), inset 0 -1px 0 rgba(255,255,255,0.05), 0 0 0 1px rgba(0,0,0,0.55); }
+  .tempo-row input[type=range]::-moz-range-track { height:6px; border-radius:3px; background:#2b2621;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.55); }
+  .tempo-row input[type=range]::-moz-range-progress { height:6px; border-radius:3px; background:#d8d3cb; }
+  /* machined aluminium puck thumb (matches the icon buttons) */
+  .tempo-row input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
+    width:16px; height:16px; border-radius:50%; margin-top:-5px;
+    background:linear-gradient(180deg,#f0eee9,#dad7d1);
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.95), inset 0 -1px 1px rgba(0,0,0,0.18),
+      0 1px 2px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.5); }
+  .tempo-row input[type=range]::-moz-range-thumb { width:16px; height:16px; border:none; border-radius:50%;
+    background:linear-gradient(180deg,#f0eee9,#dad7d1);
+    box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.95), 0 1px 2px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.5); }
+
+  .val { font-size:var(--text-2xs); color:#b6afa4; min-width:24px; font-variant-numeric:tabular-nums; }
+
+  /* ---- Undo whisper (appears above the dock after Clear — the one destructive act) ---- */
+  .undo-bar { position:absolute; left:50%; transform:translateX(-50%) translateY(8px);
+    bottom:calc(var(--dock-gap, 96px) + env(safe-area-inset-bottom) + 8px);
+    display:flex; align-items:center; gap:12px; padding:8px 12px 8px 16px; border-radius:20px;
+    background:linear-gradient(180deg,var(--dock-hi),var(--dock-lo));
+    color:rgba(233,226,216,0.75); font-size:var(--text-xs); z-index:4;   /* BELOW the dock (5): the pill must never cover the open menu, which lives inside the dock's stacking context */
+    box-shadow:0 4px 12px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.5);
+    opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
+  .undo-bar.show { opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .undo-btn { border:none; background:rgba(255,255,255,0.08); color:#e9e2d8; cursor:pointer;
+    font:inherit; font-weight:600; padding:4px 12px; border-radius:12px; transition:background .12s; }
+  .undo-btn:hover { background:rgba(255,255,255,0.14); }
+
+  /* ---- Overflow menu (second-order actions as labeled rows) ---- */
+  .menu-wrap { position:relative; }
+  .menu { position:absolute; right:0; bottom:calc(100% + 12px); min-width:208px;
+    background:linear-gradient(180deg,#241f19,#1a1613); border:1px solid rgba(255,255,255,0.07);
+    border-radius:16px; padding:8px; z-index:70;   /* above the tooltip layer (60) — nothing may sit over an open menu */
+    box-shadow:0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.55);
+    opacity:0; transform:translateY(6px) scale(0.98); transform-origin:bottom right;
+    pointer-events:none; transition:opacity .16s ease, transform .16s ease; }
+  .menu.open { opacity:1; transform:none; pointer-events:auto; }
+  .menu-row { display:flex; align-items:center; gap:12px; padding:8px 12px; border-radius:8px;
+    cursor:pointer; color:#e9e2d8; font-size:var(--text-sm); font-weight:500; white-space:nowrap;
+    transition:background .12s, color .12s; }
+  .menu-row:hover { background:rgba(255,255,255,0.06); }
+  .menu-row svg { width:16px; height:16px; flex:none; color:#9a9286; transition:color .12s; }
+  .menu-row:hover svg { color:#e9e2d8; }
+  .menu-row.warn:hover { background:rgba(216,90,74,0.14); color:#f1a294; }
+  .menu-row.warn:hover svg { color:#f1a294; }
+  .menu-row.disabled { opacity:0.35; pointer-events:none; }
+  .menu-sep { height:1px; margin:8px; background:rgba(255,255,255,0.08); }
+
+  /* ---- About card (the dock's ⓘ) ---- */
+  .about-modal { position:absolute; inset:0; z-index:20; display:none; }
+  .about-modal.open { display:flex; align-items:center; justify-content:center; }
+  .about-modal .scrim { position:absolute; inset:0; background:rgba(8,6,5,0.55); }
+  .about-card { position:relative; width:min(540px, calc(100% - 32px)); max-height:calc(100% - 32px);
+    overflow:auto; box-sizing:border-box;
+    background:#1c1916; border:1px solid rgba(255,255,255,0.07); border-radius:28px;
+    padding:36px 40px 28px; box-shadow:0 24px 60px rgba(0,0,0,0.55); }
+  /* rhythm modeled on stillnight.joshua-garcia.com's about: airy 1.75 body leading,
+     ~1.4em paragraph gaps, body at ~82% of the foreground, footer dim at ~45%. */
+  .about-card h2 { margin:0 0 24px; font-size:var(--text-xl); font-weight:600; letter-spacing:.2px; color:#f3efe8; }
+  .about-card p { margin:0 0 24px; font-size:var(--text-base); line-height:1.75; color:rgba(233,226,216,0.82); }
+  .about-card .about-foot { margin:32px 0 0; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08);
+    font-size:var(--text-xs); color:rgba(233,226,216,0.45); line-height:2; }
+  .about-foot a { color:rgba(233,226,216,0.55); text-decoration:none; transition:color .15s; }
+  .about-foot a:hover { color:rgba(233,226,216,0.95); }
+  .about-close { position:absolute; top:16px; right:16px; width:32px; height:32px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; padding:0;
+    background:rgba(255,255,255,0.06); color:#9a9286; transition:background .12s, color .12s; }
+  .about-close:hover { background:rgba(255,255,255,0.12); color:#e9e2d8; }
+  .about-close svg { width:16px; height:16px; }
+
+  /* Tooltips — custom, matched to the app's chrome (dark machined pill, Work Sans, type-scale
+     text) instead of the browser's native title popups. They sit above the control with a small caret. */
+  [data-tip]{ position:relative; }
+  [data-tip]::after, [data-tip]::before{ opacity:0; pointer-events:none; position:absolute; left:50%;
+    z-index:60; transition:opacity .13s ease, transform .13s ease; }
+  [data-tip]::after{ content:attr(data-tip); bottom:calc(100% + 11px); transform:translate(-50%,4px);
+    padding:5px 9px 6px; border-radius:9px; white-space:nowrap;
+    background:linear-gradient(180deg,#241f19,#171410); color:#ece6dc;
+    font-size:var(--text-2xs); font-weight:500; letter-spacing:.2px; line-height:1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 3px 9px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.6); }
+  [data-tip]::before{ content:''; bottom:calc(100% + 6px); transform:translate(-50%,4px);
+    border:5px solid transparent; border-top-color:#191510; }
+  /* only on real hover devices — on touch, a tap fires a "sticky" :hover that leaves the tooltip lingering. */
+  @media (hover: hover){
+    [data-tip]:hover::after, [data-tip]:hover::before{ opacity:1; transform:translate(-50%,0); transition-delay:.3s; }
+  }
+  [data-tip=""]::after, [data-tip=""]::before{ display:none; }   /* no box for empty tips */
+
+  /* ---- Mobile overrides ---------------------------------------------------- */
+  /* On narrow screens the 108px corner radius is oversized; drop it to 36px. The inheriting
+     layers (#introCv, #canvasWrap::after, #moodFade use border-radius:inherit) follow along. */
+  /* COMPACT controls — triggers on narrow width (portrait phones) OR short height (LANDSCAPE phones /
+     short windows). Landscape is wide but only ~390px tall, so it needs the compact dock too, else the
+     desktop dock wraps to 4 rows and the measured gap squishes the canvas to a sliver. The canvas gap
+     auto-reserves the real dock height (--dock-gap), so it never overlaps regardless of row count. */
+  @media (max-width: 640px), (max-height: 540px){
+    :root { --field-r: 36px; }   /* mobile corner radius (drives #startBg, #canvasWrap and clip-paths) */
+    #start button { padding:12px 28px; min-height:44px; }   /* smaller Play button on phones */
+    .dock { gap:16px 20px; }   /* row-gap 16 · between-group 20 (2.5× the 8px within-group — grouping stays legible) */
+    .dock-group { gap:8px; }
+    .swatch, .swatch.mood, .iconbtn { width:32px; height:32px; }   /* 32 everywhere on mobile so the 1-row landscape fits an SE (667px) without overflow */
+    .iconbtn svg { width:16px; height:16px; }
+    .tempo-row input[type=range] { width:64px; }
+    .val { min-width:20px; }
+  }
+  /* PORTRAIT phones only (orientation-gated: a small phone in LANDSCAPE is also ≤640px wide,
+     and must NOT get these rules — the 44px stack would swallow a 320px-tall screen). */
+  @media (max-width: 640px) and (orientation: portrait){
+    .dock { width:calc(100% - 16px); max-width:none; }
+    /* row 2 has spare width since the overflow menu slimmed it — give the tempo slider a usable
+       thumb-travel (the compact 64px is for LANDSCAPE's single row, where every px counts). */
+    .tempo-row input[type=range] { width:120px; }
+    /* 44px touch targets (Apple HIG). Eight 44px swatches can't share a row on a phone, so
+       portrait stacks rows — the row breaks separate the groups. Landscape keeps the
+       compact 32px single row. */
+    .swatch, .swatch.mood, .iconbtn { width:44px; height:44px; }
+    .iconbtn svg { width:20px; height:20px; }
+    /* lockup spacing scales with the type: 32px of tagline→Play air suits desktop's 26px
+       tagline but dwarfs portrait's 16px one — bring it to 20px (8px margin + 12px gap). */
+    #startTag { margin-bottom:8px; }
+  }
+  /* LANDSCAPE phones (short but wide enough): force the compact dock onto a SINGLE row — everything
+     fits in the ample width, and it keeps the dock short so the canvas isn't squished. */
+  @media (min-width: 641px) and (max-height: 540px){
+    .dock { flex-wrap:nowrap; }
+  }
+  /* TOUCH-target extension (Apple HIG 44pt is about the HIT AREA, not the visual): on coarse
+     pointers every puck grows an invisible tap zone (±4px sides / ±6px vertical → 32px pucks
+     hit at 40×44, 44px pucks tile edge-to-edge at their 52px pitch). The resets below undo the
+     tooltip's [data-tip]::after styling, which shares this pseudo-element; tooltips are
+     hover-only, so nothing visible is lost on touch. */
+  @media (pointer: coarse){
+    .swatch, .iconbtn { position:relative; }
+    .swatch::after, .iconbtn::after { content:''; position:absolute;
+      left:-4px; right:-4px; top:-6px; bottom:-6px;
+      background:none; box-shadow:none; padding:0; border-radius:0;
+      z-index:auto;   /* CRITICAL: the tooltip base rule sets z-index:60 on this same pseudo — without this reset the invisible hit zones float ABOVE the open menu and steal its taps */
+      opacity:1; pointer-events:auto; transform:none; transition:none; }
+    .tempo-row input[type=range] { height:32px; }   /* taller hit strip; the 6px track just recenters */
+  }
+  /* About card on phones / short windows: take the whole screen. `safe center` centers the
+     text block when it fits and top-aligns (scrollable) when it doesn't. The measure cap
+     keeps lines readable on landscape phones (the short-window query fires at 844px wide). */
+  @media (max-width: 640px), (max-height: 540px){
+    .about-card { width:100%; height:100%; max-height:none; border-radius:0; border:none;
+      padding:calc(32px + env(safe-area-inset-top)) 28px calc(24px + env(safe-area-inset-bottom));
+      display:flex; flex-direction:column; justify-content:safe center; }
+    .about-card h2, .about-card p { width:100%; max-width:520px; margin-left:auto; margin-right:auto; }
+    .about-close { top:calc(16px + env(safe-area-inset-top)); }
+  }
+</style>
+</head>
+<body>
+  <div id="start">
+    <div id="startBg"><canvas id="introCv"></canvas></div>
+    <h1 id="startTitle">Palette</h1>
+    <p id="startTag">Paint with color, hear music.</p>
+    <button id="startBtn">Play</button>
+  </div>
+
+  <div id="app">
+    <div id="canvasWrap">
+      <canvas id="cv"></canvas>
+      <div id="grain"></div>
+      <div id="moodFade"></div>
+    </div>
+    <div class="dock">
+      <div class="dock-group" id="moods"></div>
+      <div class="dock-group" id="palette"></div>
+      <!-- transport: the tinted primary + its tempo -->
+      <div class="dock-group">
+        <div class="iconbtn" id="playpause" data-tip="Play / pause" aria-label="Play or pause">
+          <svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 5v14l11-7z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        </div>
+        <div class="tempo-row">
+          <input id="tempo" type="range" min="60" max="180" value="115">
+          <span class="val" id="vTempo">115</span>
+        </div>
+      </div>
+      <!-- overflow menu: the second-order actions live behind one puck, as WORDS -->
+      <div class="menu-wrap">
+        <div class="iconbtn" id="moreBtn" data-tip="More" aria-label="More options" aria-haspopup="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+        </div>
+        <div class="menu" id="moreMenu" role="menu">
+          <div class="menu-row" id="songsBtn" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+            <span>Surprise me</span>
+          </div>
+          <div class="menu-row" id="dupBtn" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg>
+            <span>Duplicate timeline</span>
+          </div>
+          <div class="menu-row warn" id="clear" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            <span>Clear canvas</span>
+          </div>
+          <div class="menu-sep"></div>
+          <div class="menu-row" id="aboutBtn" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <span>About</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="undoBar" class="undo-bar" role="status">
+      <span>Cleared</span>
+      <button id="undoBtn" class="undo-btn">Undo</button>
+    </div>
+    <div id="aboutModal" class="about-modal" role="dialog" aria-modal="true" aria-label="About Palette">
+      <div class="scrim"></div>
+      <div class="about-card">
+        <button class="about-close" id="aboutClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2>Palette</h2>
+        <p>In the 1930s, Oskar Fischinger and Mary Ellen Bute painted films where shapes
+          and color moved in rhythm. They called it visual music. Palette runs the
+          experiment in reverse. Instead of drawing what music looks like, you paint what
+          the music will be.</p>
+        <p>Dark colors feel low and heavy; bright colors feel high and light. Pitch snaps
+          to scale and time snaps to the grid, so nothing you paint can sound wrong.</p>
+        <p class="about-foot">Created by <a href="https://joshua-garcia.com" target="_blank" rel="noopener">Joshua Garcia</a><br>
+          <a href="https://github.com/joshuagarcia-git/palette" target="_blank" rel="noopener">View source code</a></p>
+      </div>
+    </div>
+  </div>
+
+<script src="tone.js"></script>
+<script src="song-data.js"></script>
+<script src="gsap.min.js"></script>
+<script>
+// ===========================================================================
+// PALETTE — paint with color, hear music.
+// TWO controls:
+//   1) MOOD  → sets the background color field, the key/scale, and the tempo.
+//   2) COLORS → the mood's 5-color palette, darkest→lightest (darkest = bass).
+// x = time (loops) · y = pitch (pentatonic, always in key) · color = which voice.
+// Notes render as soft color clouds that pulse when the playhead strikes them.
+// ===========================================================================
+
+let COLS = 32; const ROWS = 15; const BASE_COLS = 32;
+let grid  = Array.from({length:COLS}, ()=> new Int8Array(ROWS).fill(-1));
+let bloom = Array.from({length:COLS}, ()=> new Float64Array(ROWS));
+let vel   = Array.from({length:COLS}, ()=> new Float32Array(ROWS).fill(0.85)); // boldness 0..1 per cell
+let rat   = Array.from({length:COLS}, ()=> new Uint8Array(ROWS).fill(1));       // ratchet count 1..4 per cell (from stroke speed)
+// Rebuild the grid at a new column count (the song preset needs a much longer timeline
+// than the painting loop; switching mood / clearing resets it to BASE_COLS).
+function setGridCols(n){ COLS=n;
+  grid  = Array.from({length:COLS}, ()=> new Int8Array(ROWS).fill(-1));
+  bloom = Array.from({length:COLS}, ()=> new Float64Array(ROWS));
+  vel   = Array.from({length:COLS}, ()=> new Float32Array(ROWS).fill(0.85));
+  rat   = Array.from({length:COLS}, ()=> new Uint8Array(ROWS).fill(1));
+  if (W) cellW = W/COLS;
+  refreshDupBtn(); }
+
+// ---- Duplicate timeline (×2) ---------------------------------------------
+// Take the whole current timeline and make it twice as long, COPYING the painting into
+// the new half — so the loop starts as two identical phrases (A A) that you can then vary
+// into A B. Repeatable (32 → 64 → 128), capped at MAX_COLS. Clear / mood-switch reset to 32.
+// Triggering and the playhead are %COLS, so they adapt to the new length automatically;
+// cells (and notes, which are cell-relative) simply get narrower to fit.
+const MAX_COLS = 128;
+function duplicateTimeline(){
+  if (COLS*2 > MAX_COLS) return;                         // capped
+  const old=COLS, og=grid, ov=vel, orr=rat;             // capture current painting
+  setGridCols(old*2);                                   // rebuild empty at 2× (also halves cellW)
+  for (let c=0;c<old;c++) for (let r=0;r<ROWS;r++){
+    grid[c][r]=og[c][r]; grid[c+old][r]=og[c][r];       // copy phrase into both halves
+    vel[c][r]=ov[c][r];  vel[c+old][r]=ov[c][r];
+    rat[c][r]=orr[c][r]; rat[c+old][r]=orr[c][r];
+  }
+  refreshDupBtn();
+}
+
+// ---- Sampled-instrument config (must be defined before MOODS, which references it) -------
+// The ONE house instrument: the Salamander Grand Piano (a real Yamaha C5), self-hosted so it
+// plays offline. initAudio decodes the 18 stems ONCE and every voice shares that one copy
+// (stems use 's' for sharps, e.g. 'Ds4' → Sampler key 'D#4'; ~every minor third so the
+// Sampler interpolates cleanly).
+const SALAMANDER = './samples/piano/';
+const N_PIANO  = ['A1','C2','Ds2','Fs2','A2','C3','Ds3','Fs3','A3','C4','Ds4','Fs4','A4','C5','Ds5','Fs5','A5','C6'];
+
+// ---- The moods (blue · green · red) ---------------------------------------
+// bg = field gradient · root/scale = key (pentatonic) · oct = base octave
+// notes = the 5 paint colors → voices, darkest→lightest.
+// Order = the swatch order in the dock (and index 0 = the default/intro mood).
+// ONE HOUSE INSTRUMENT SET for every mood (2026-07-01). We do NOT swap instruments per mood or per
+// song — chasing a specific record's timbre with generic samples always sounds "off". Every mood
+// plays the SAME cohesive voice (self-hosted Salamander grand piano only — low register = bass); moods differ
+// only by COLOR, KEY/SCALE and TEMPO. Songs are arrangements in Palette's own voice, not covers.
+// Each HOUSE entry is a color slot's instrument spec (darkest→lightest); the per-mood palettes
+// below supply only the 5 colors. (Slot order feeds LEVELS[]/EQ[], so keep bass first.)
+const HOUSE = [
+  { bass:true, transpose:-24, filt:2600, rev:0.12 },   // grand piano, low register = the bass
+  { filt:3800,  rev:0.26 },                            // grand piano — dark
+  { filt:7000,  rev:0.24 },                            // grand piano — mid
+  { filt:11000, rev:0.26 },                            // grand piano — bright
+  { filt:16000, rev:0.30 },                            // grand piano — open (accent)
+];
+// Per-mood palettes: 5 colors each (darkest→lightest). Same instrument in each slot across moods.
+const MOOD_COLORS = [
+  ['#2a1f6e','#2f55c4','#3aa6d8','#5fd0e6','#ccf3ff'],   // Calm    — blue
+  ['#0f3d44','#149255','#5cbf50','#a8e05a','#eef5c2'],   // Peace   — green
+  ['#5e1240','#c41f47','#ec4a3e','#f4885a','#ffe1c6'],   // Passion — red
+];
+const houseNotes = cols => HOUSE.map((v,i) => ({ ...v, color:cols[i] }));
+const MOODS = [
+  { name:'Calm',    root:'A', scale:[0,3,5,7,9],  oct:3, bg:['#1f8fe0','#1568bc'], tempo:85,  notes:houseNotes(MOOD_COLORS[0]) },  // Dorian minor-6 pent — wistful & warm · cool → slowest
+  { name:'Peace',   root:'G', scale:[0,2,5,7,9],  oct:3, bg:['#1f9e57','#15793f'], tempo:100, notes:houseNotes(MOOD_COLORS[1]) },  // suspended/open pent — airy serenity · medium
+  { name:'Passion', root:'C', scale:[0,2,4,7,10], oct:3, bg:['#d8324a','#a01d34'], tempo:115, notes:houseNotes(MOOD_COLORS[2]) },  // dominant/bluesy pent — heat & soul · fastest
+];
+
+// ---- Master bus + voices -------------------------------------------------
+let masterVol, masterChorus, masterReverb, masterDry, limiter, seqLoop, started=false;
+let curMood=-1, mood, voices=[], PITCH=[], renderColors=[], curColor=0;
+let presetMode=false;   // when a song preset is loaded: clean monophonic playback (no voicing/bass-octave/ratchet)
+const moodCache = {};
+
+// NOTE: there is no separate step counter. The trigger column and the visual playhead are
+// BOTH derived from the transport's tick clock (see tick() and draw()), so they share one
+// origin and can never drift — through stop/start (stop resets ticks, both reset together),
+// tempo changes, or pause/resume. (A prior gStep counter desynced whenever transport.stop()
+// reset the ticks but the counter kept counting — the recurring "playhead off" bug.)
+
+function initAudio(startMood){
+  limiter   = new Tone.Limiter(-1).toDestination();
+  masterVol = new Tone.Volume(dbFromPct(80)).connect(limiter);
+  // master glue: a gentle bus compressor so all the voices breathe together as one
+  // instrument. Low ratio + soft knee + slow-ish attack keeps the bass and
+  // transients punchy (a fast attack would squash them). The makeup gain restores
+  // the loudness the level + EQ cuts took off, before the limiter safety catch.
+  // gentle tanh tape-saturation on the master — the one nonlinearity that rounds peaks
+  // and adds odd-harmonic warmth so stacked notes glue instead of sounding digitally hard
+  // (normalised so it passes the full range cleanly; just a soft S-curve in between).
+  const SD=1.15, sat = new Tone.WaveShaper(x => Math.tanh(x*SD)/Math.tanh(SD), 4096).connect(masterVol);
+  const makeup = new Tone.Gain(1.25).connect(sat);
+  const glue   = new Tone.Compressor({ threshold:-20, ratio:2, attack:0.03, release:0.25, knee:20 }).connect(makeup);
+  const low = new Tone.Filter(12000,'lowpass').connect(glue);
+  masterDry = low;   // bass routes here directly (bypasses chorus) so the sub stays solid & centred
+  // a gentle chorus widens the melodic voices a touch; the bass bypasses it (via
+  // masterDry) so the low end stays solid and centred.
+  masterChorus = new Tone.Chorus({ frequency:0.6, delayTime:3.5, depth:0.3, spread:180, wet:0.12 }).start();
+  masterChorus.connect(low);
+  masterReverb = new Tone.Reverb({ decay:3.6, preDelay:0.012, wet:1 }).connect(low);
+
+  // The 5 voices are IDENTICAL in every mood (one house instrument): decode the piano's
+  // 18 stems ONCE and build every voice from the shared buffers — one decoded copy in
+  // memory instead of fifteen. The samplers are built only AFTER the stems finish
+  // decoding: wiring a still-loading buffer into several samplers silently breaks (each
+  // wrap replaces the buffer's onload, so only the last sampler ever loads — verified).
+  // Until then voices=[] and tick() skips triggering, same as the old loading gate.
+  const stems = {}; N_PIANO.forEach(s => { stems[s.replace('s','#')] = s + '.mp3'; });
+  const pianoBuffers = new Tone.ToneAudioBuffers(stems, () => {
+    const urls = {}; Object.keys(stems).forEach(n => { urls[n] = pianoBuffers.get(n); });
+    voices = HOUSE.map((p, idx) => buildVoice(p, idx, urls));
+  }, SALAMANDER);
+  selectMood(startMood ?? 0);   // sets the tempo; the transport stays paused until the first note is painted
+  seqLoop = new Tone.Loop(tick, '16n').start(0);
+  started = true;
+}
+
+// ---- Mix: per-voice channel-strip levels (a "level pass") ----------------
+// Linear output gains by slot, darkest→lightest. High frequencies read louder,
+// so the bright slots are pulled down to keep the stack balanced; the bass is
+// the solid foundation. (Reverb send is taken AFTER this gain, so levels
+// balance the wet amount too.)
+const LEVELS = [0.82, 0.74, 0.72, 0.64, 0.48];   // bass · dark · mid · bright · open
+
+// ---- Mix: per-voice EQ (surgical follow-up to the level pass) -------------
+// Carve a place for each voice. Only the bass owns the low end — every other
+// voice gets a high-pass so the lows stay clean and headroom opens up, and the
+// brightest slots get a high-shelf to tame glassy edge without dropping their
+// level. (These are linear filters; order in the chain doesn't matter.)
+//   hp: high-pass Hz · hs:{f,g} high-shelf cut
+const EQ = [
+  { hp: 0 },                          // bass — owns the lows, untouched
+  { hp: 60 },                         // dark — barely cut, maximum warmth/body
+  { hp: 80 },                         // mid
+  { hp: 100, hs:{f:7000, g:-1.5} },   // bright — a hair of top tamed
+  { hp: 150, hs:{f:6000, g:-2.0} },   // open — keep lows clean, soften the very top
+];
+
+// REAL SAMPLED INSTRUMENT voice. Each voice plays actual recordings and Tone.Sampler
+// pitch-shifts between the loaded notes — so the canvas embodies a real instrument
+// instead of approximating one. `urls` maps note names → already-decoded, SHARED
+// ToneAudioBuffers (one piano copy for all voices). Per voice:
+//   filt  = a per-voice lowpass that carries the dark→light brightness ramp (kept OPEN
+//           so it shapes warmth without muffling the high-quality samples)
+//   atk/srel = sampler amp attack / release · rev = reverb send · bass = dry & centred.
+function buildVoice(p, idx, urls){
+  const sampler = new Tone.Sampler({
+    urls,
+    attack: p.atk!=null ? p.atk : 0,
+    release: p.srel!=null ? p.srel : 0.9,
+  });
+  const dest = p.bass ? masterDry : masterChorus;   // bass dry & centred; melodic → lush chorus
+  const out = new Tone.Gain(LEVELS[idx]!=null ? LEVELS[idx] : 0.85);
+  const rev = new Tone.Gain(p.rev!=null ? p.rev : 0.3).connect(masterReverb);
+
+  // per-voice tone: a lowpass carries the dark→light brightness ramp; EQ keeps lows clean.
+  const chain = [ new Tone.Filter(p.filt || 7000, 'lowpass') ];
+  const eq = EQ[idx] || {};
+  if (eq.hp) chain.push(new Tone.Filter({ type:'highpass',  frequency:eq.hp,   Q:0.7 }));
+  if (eq.hs) chain.push(new Tone.Filter({ type:'highshelf', frequency:eq.hs.f, gain:eq.hs.g }));
+
+  let node = sampler;
+  for (const f of chain){ node.connect(f); node = f; }   // wire sampler → lowpass → …eq… → out
+  node.connect(out);
+  out.connect(dest); out.connect(rev);
+  return { synth: sampler };
+}
+
+// ---- Scale per mood ------------------------------------------------------
+// each mood's `scale` is an explicit 5-note (pentatonic) interval set chosen to
+// color its emotion while staying in-key — see the per-mood comments above.
+function buildScale(m){
+  const iv = m.scale, arr=[];
+  for (let r=0;r<ROWS;r++){
+    const oct = m.oct + Math.floor(r/5);
+    arr.push(Tone.Frequency(m.root+oct).transpose(iv[r%5]).toNote());
+  }
+  return arr;
+}
+// ---- Color helper -------------------------------------------------------
+function rgbaHex(hex,a){ const n=parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+
+// ---- Switch mood ---------------------------------------------------------
+// Compute (once) and cache a mood's scale + contrast-adjusted render colors.
+// (The voices are shared across all moods — built once in initAudio.)
+function ensureMood(i){
+  if (!moodCache[i]) moodCache[i] = {
+    p: buildScale(MOODS[i]),
+    rc: contrastColors(MOODS[i].notes, MOODS[i]),  // contrast-adjusted render colors
+  };
+  return moodCache[i];
+}
+function selectMood(i){
+  const prevMood = mood;   // for the cross-fade morph (undefined on the very first call)
+  curMood=i; mood=MOODS[i];
+  ensureMood(i);
+  PITCH = moodCache[i].p; renderColors = moodCache[i].rc;
+  curColor = 0; presetMode = false;   // switching mood exits any loaded song preset
+  currentSong = -1; refreshMoodArt(); hideUndo();
+  // TEMPO IS TUNED TO THE COLOR (research-backed: warm/high-arousal hues → faster,
+  // cool/low-arousal → slower — Palmer 2013, PNAS). Each mood carries its own bpm;
+  // selecting it sets the transport there and the slider becomes a fine-tune from it.
+  const T = Tone.getTransport();
+  if (started) T.bpm.rampTo(mood.tempo, 0.4); else T.bpm.value = mood.tempo;
+  animateTempoTo(mood.tempo, started ? 0.4 : 0);   // tick the readout to match the audio ramp (snap on first load)
+  // (trigger + playhead are both transport-tick-derived now, so nothing here needs resetting)
+  if (COLS!==BASE_COLS) setGridCols(BASE_COLS);                 // a song expanded the grid — back to normal
+  else for (let c=0;c<COLS;c++) grid[c].fill(-1);                // fresh canvas in the new mood
+  if (started) parkPlayhead();                 // empty canvas → playhead waits at the start
+  renderNotePalette();
+  buildBg();
+  buildNoise();
+  document.documentElement.style.setProperty('--accent', mood.bg[0]);   // play button tints to the mood
+  // tint the dark chrome (tool knobs + undo toast) toward the mood's TEMPERATURE — cool on blue, warm on red
+  const fc = hexToHsl(mood.bg[0]);
+  const cH = Math.round(fc.h), rs = document.documentElement.style;
+  rs.setProperty('--dock-hi', `hsl(${cH} 15% 10.5%)`); rs.setProperty('--dock-lo', `hsl(${cH} 18% 7%)`);
+  rs.setProperty('--btn-hi',  `hsl(${cH} 15% 12.5%)`); rs.setProperty('--btn-lo',  `hsl(${cH} 17% 9.5%)`);
+  rs.setProperty('--bg', `hsl(${cH} 45% 10%)`);   // the surround = an Albers ground: a deep dark of the mood's own hue
+
+  document.querySelectorAll('#moods .swatch').forEach(el=>el.classList.toggle('sel', +el.dataset.mood===i));
+  // MORPH: lay the OUTGOING mood's field on top, then fade it out to reveal the new one.
+  if (started && prevMood && prevMood!==mood && typeof gsap!=='undefined'){
+    const mf = document.getElementById('moodFade');
+    if (mf){ mf.style.background = `radial-gradient(72% 72% at 50% 42%, ${prevMood.bg[0]}, ${prevMood.bg[1]})`;
+      gsap.killTweensOf(mf); gsap.set(mf, {opacity:1}); gsap.to(mf, {opacity:0, duration:0.6, ease:'power2.out'}); }
+  }
+}
+
+// ---- Sequencer -----------------------------------------------------------
+// A small in-scale voicing for a single painted note: the note + the octave below
+// for body + a pentatonic third below (all pentatonic, so always consonant).
+function voicing(r){
+  const root=PITCH[r];
+  const n=[root, Tone.Frequency(root).transpose(-12).toNote()];
+  // add an in-scale third below for body — but skip it if it would form a tritone
+  // with the root (some colorful pentatonics produce one), keeping the voicing consonant.
+  if (r-2>=0){
+    const third=PITCH[r-2];
+    if ((Tone.Frequency(root).toMidi() - Tone.Frequency(third).toMidi()) % 12 !== 6) n.push(third);
+  }
+  return n;
+}
+// ---- Groove: deterministic metric accent (no UI, no randomness) -----------
+// A smear = repeated notes = an arp. What stops it sounding like a flat machine-gun
+// is METRIC ACCENT — stressing the beat. We know each cell's column = its position
+// in the bar, so accent is free and fully legible (a consequence of WHERE the mark
+// sits in time). It shapes velocity (downbeats a touch louder) AND gate length
+// (downbeats more legato, off-beats more staccato → the "bounce"). Timing is never
+// touched, so the playhead/trigger sync is unaffected.
+const STEP_ACC = [1.0, 0.62, 0.80, 0.62];   // 16ths within a beat: beat · e · & · a
+const BEAT_ACC = [1.0, 0.86, 0.93, 0.86];   // beats within the bar: 1 · 2 · 3 · 4
+function accentAt(c){ const b=c%16; return STEP_ACC[b%4]*BEAT_ACC[(b>>2)&3]; }   // ~0.53 (weak) … 1.0 (downbeat)
+
+function tick(time){
+  const T = Tone.getTransport();
+  const stepSec = Tone.Time('16n').toSeconds();
+
+  // (no background harmony — the only sound is notes triggered by the playhead)
+
+  // melody — a note fires exactly when the playhead crosses its column. The column is read
+  // from the transport's OWN tick count at this scheduled audio time — the SAME clock the
+  // visual playhead uses — so trigger and playhead share one origin and can never drift.
+  const c = Math.round(T.getTicksAtTime(time) / (T.PPQ/4)) % COLS;
+  if (c % 16 === 0)   // downbeat → a global field pulse that brightens the playhead glow
+    Tone.Draw.schedule(()=>{ if (typeof gsap!=='undefined') gsap.fromTo(beat, {p:1}, {p:0, duration:0.55, ease:'power2.out', overwrite:true}); }, time);
+  if (DEBUG && c%8===0){   // press 'd' to start logging — 4 prints/loop, with the playhead↔trigger drift
+    const raw=Tone.getContext().rawContext, look=Tone.getContext().lookAhead;
+    const phCol=(T.ticks/(T.PPQ/4))%COLS;                         // where the VISUAL playhead sits right now (tick clock)
+    console.log(`[sync] trigCol=${c} playheadCol=${phCol.toFixed(2)} drift=${(phCol-c).toFixed(2)} cells`
+      +` | bpm=${T.bpm.value.toFixed(1)} stepSec=${stepSec.toFixed(3)}`
+      +` | lookAhead=${look.toFixed(3)} base=${(raw.baseLatency||0).toFixed(3)} out=${(raw.outputLatency!=null?raw.outputLatency:0).toFixed(3)}`
+      +` | noteTime=${time.toFixed(3)} ctxNow=${raw.currentTime.toFixed(3)} scheduledAhead=${(time-raw.currentTime).toFixed(3)}s`);
+  }
+  for (let r=0;r<ROWS;r++){
+    const ci = grid[c][r];
+    if (ci < 0) continue;
+    if (!voices[ci] || voices[ci].synth.loaded === false) continue;   // stems still decoding — don't trigger yet
+    const p = mood.notes[ci];
+    const acc = accentAt(c);                             // metric stress at this column
+    const v = (0.25 + 0.70*vel[c][r]) * (0.66 + 0.34*acc);   // boldness, groove-shaped by accent
+    if (presetMode){   // song arrangement: one clean note per cell, sustained so pads ring into chords
+      voices[ci].synth.triggerAttackRelease(PITCH[r], stepSec*2.8, time, v);
+    } else if (p.bass){   // the darkest color = a bass brush: one low note (no voicing — keeps the sub clean)
+      const n = Tone.Frequency(PITCH[r]).transpose(p.transpose||-24).toNote();
+      voices[ci].synth.triggerAttackRelease(n, stepSec*0.95, time, v);   // steady gate → the floor stays solid
+    } else {
+      const gate = stepSec * (0.45 + 0.55*acc);          // off-beats staccato, downbeats legato → bounce
+      const k = rat[c][r] || 1;                           // ratchet count: 1 = single hit; >1 = fast-smear flurry
+      const nv = voicing(r);                              // each painted cell = a small in-scale voicing
+      if (k<=1){
+        voices[ci].synth.triggerAttackRelease(nv, gate, time, v);
+      } else {
+        const sub=stepSec/k, g=sub*0.9;                   // subdivide the step into k even retriggers (32nds/triplets/64ths)
+        for (let i=0;i<k;i++)
+          voices[ci].synth.triggerAttackRelease(nv, g, time + i*sub, v*(1 - 0.08*i));  // slight decay = a natural roll
+      }
+    }
+    Tone.Draw.schedule(()=>{ bloom[c][r]=performance.now(); flashCol=c; flashT=performance.now(); fireHit(c,r,ci); }, time);
+  }
+}
+
+// ---- Rendering -----------------------------------------------------------
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W=0,H=0,cellW=0,cellH=0,dpr=1,fx=null,fxc=null,fpsLast=0,fpsFrames=0,fpsVal=0;
+let DEBUG=false, flashCol=-1, flashT=0;   // timing debug overlay (toggle with 'd')
+const DS=0.9;   // cloud layer render scale — upscaling it gives a cheap soft blur
+let bgCache=null,bgctx=null;   // pre-rendered background field (rebuilt on mood/resize)
+// per-color cloud character (by slot): spread (size) · op (opacity) · soft (mid
+// fade point — lower = more diffuse/blurred, higher = more defined/opaque).
+const CLOUD=[
+  { spread:1.35, op:0.78, soft:0.90 },   // darkest — wide, recedes
+  { spread:1.16, op:0.86, soft:0.90 },
+  { spread:1.00, op:0.92, soft:0.90 },   // mid
+  { spread:0.85, op:0.97, soft:0.90 },
+  { spread:0.72, op:1.00, soft:0.90 },   // lightest — tight, bright, pops
+];
+function resize(){
+  dpr = window.devicePixelRatio||1;
+  const RS = Math.min(dpr, 1);   // render at 1× — soft glows don't need retina pixels
+  const r = cv.getBoundingClientRect(); W=r.width; H=r.height;
+  cv.width=Math.round(W*RS); cv.height=Math.round(H*RS);
+  ctx.setTransform(RS,0,0,RS,0,0);
+  cellW=W/COLS; cellH=H/ROWS;
+  if (!fx){ fx=document.createElement('canvas'); fxc=fx.getContext('2d'); }
+  fx.width=Math.max(1,Math.round(W*DS)); fx.height=Math.max(1,Math.round(H*DS));
+  buildBg();
+}
+// Reserve exactly the dock's real height for the canvas bottom gap (+ spacing; safe-area added in CSS),
+// so the controls never overlap the canvas no matter how many rows they wrap to on small screens.
+// The +48 = 24px below the dock (its CSS bottom offset) + 24px of canvas→knobs air above —
+// equal air both sides, so the controls sit CENTERED between canvas edge and viewport edge (4px grid).
+function syncDockGap(){ const d=document.querySelector('.dock'); if(!d) return; const h=d.offsetHeight;
+  if (h>0) document.documentElement.style.setProperty('--dock-gap', (h+48)+'px'); }
+// Debounce resize: mobile address-bar show/hide fires it rapidly; reallocating the canvas each time flashed.
+// syncDockGap() runs IMMEDIATELY (cheap; keeps the canvas gap correct the instant the dock re-lays-out on
+// rotate, so no overlap flash); only the expensive canvas realloc (resize) is debounced.
+let _rzT; window.addEventListener('resize', ()=>{ syncDockGap(); clearTimeout(_rzT); _rzT=setTimeout(resize, 120); });
+// Pre-render the static background (gradient field) once.
+function buildBg(){
+  if (!mood || !W) return;
+  if (!bgCache){ bgCache=document.createElement('canvas'); bgctx=bgCache.getContext('2d'); }
+  bgCache.width=Math.max(1,Math.round(W)); bgCache.height=Math.max(1,Math.round(H));
+  const g=bgctx;
+  // color vignette for depth: airier/brighter centre → richer, more saturated
+  // edge in the SAME hue (deeper color, not darkness).
+  const bg=g.createRadialGradient(W/2,H*0.42,0, W/2,H*0.42, Math.max(W,H)*0.72);
+  bg.addColorStop(0,   scaleHsl(mood.bg[0], 1.16, 0.94));   // airier, brighter centre
+  bg.addColorStop(0.5, mood.bg[0]);
+  bg.addColorStop(1,   scaleHsl(mood.bg[0], 0.80, 1.06));   // deeper, richer edge — same ratio every hue
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+}
+function hexToRgb(h){ const n=parseInt(h.slice(1),16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255}; }
+function hexToHsl(hex){
+  let {r,g,b}=hexToRgb(hex); r/=255; g/=255; b/=255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b); let h,s,l=(mx+mn)/2;
+  if (mx===mn){ h=s=0; }
+  else { const dd=mx-mn; s=l>0.5 ? dd/(2-mx-mn) : dd/(mx+mn);
+    switch(mx){ case r:h=(g-b)/dd+(g<b?6:0);break; case g:h=(b-r)/dd+2;break; default:h=(r-g)/dd+4; } h/=6; }
+  return {h:Math.round(h*360), s:Math.round(s*100), l:Math.round(l*100)};
+}
+// scale a color's lightness/saturation by a factor (proportional, hue kept) so
+// the centre→edge contrast ratio is the same for every mood regardless of hue.
+function scaleHsl(hex,lMul,sMul){ const c=hexToHsl(hex);
+  return `hsl(${c.h},${Math.max(0,Math.min(100,c.s*sMul))}%,${Math.max(0,Math.min(100,c.l*lMul))}%)`; }
+function hslToHex(h,s,l){ s/=100; l/=100;
+  const a=s*Math.min(l,1-l), k=n=>(n+h/30)%12,
+    f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1))),
+    to=x=>('0'+Math.round(x*255).toString(16)).slice(-2);
+  return '#'+to(f(0))+to(f(8))+to(f(4)); }
+function mapRange(x,a,b,c,d){ if (b===a) return c; const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return c+t*(d-c); }
+// CONTRAST RULE: remap the ramp's lightness so an empty "moat" sits around the
+// background lightness — notes darker than the bg spread BELOW it, lighter ones
+// ABOVE it. Keeps all 5 distinct AND clear of the field. (Swatches keep true colors.)
+function contrastColors(notes, m){
+  const bgL=hexToHsl(m.bg[0]).l, MOAT=18, LO=6, HI=95;
+  return notes.map(n=>{ const c=hexToHsl(n.color);
+    const l = c.l<=bgL ? mapRange(c.l, 0, bgL, LO, Math.max(LO, bgL-MOAT))
+                       : mapRange(c.l, bgL, 100, Math.min(HI, bgL+MOAT), HI);
+    return hslToHex(c.h, c.s, l);
+  });
+}
+// Chromatic grain tuned to the mood: each speckle takes a hue from the mood's
+// palette but is re-centred to mid-brightness (so soft-light stays balanced),
+// plus a brightness jitter for the grain. Rebuilt on every mood switch.
+function buildNoise(){
+  if (!mood) return;
+  const pal=mood.notes.map(n=>hexToRgb(n.color)); pal.push(hexToRgb(mood.bg[0]));
+  const S=200, t=document.createElement('canvas'); t.width=t.height=S;
+  const n=t.getContext('2d'), img=n.createImageData(S,S), d=img.data, sat=0.9;
+  for (let i=0;i<d.length;i+=4){
+    const c=pal[(Math.random()*pal.length)|0];
+    const L=0.299*c.r+0.587*c.g+0.114*c.b;            // its own brightness
+    const j=(Math.random()-0.5)*80;                   // grain jitter
+    d[i]  =Math.max(0,Math.min(255,128+(c.r-L)*sat+j));   // hue (chroma) at neutral brightness
+    d[i+1]=Math.max(0,Math.min(255,128+(c.g-L)*sat+j));
+    d[i+2]=Math.max(0,Math.min(255,128+(c.b-L)*sat+j));
+    d[i+3]=255;
+  }
+  n.putImageData(img,0,0);
+  document.getElementById('grain').style.backgroundImage='url('+t.toDataURL()+')';
+}
+
+// ---- Fischinger motion layer (GSAP-driven hit choreography) ----------------
+// "Visual music" (Fischinger / McLaren / Bute): shapes that pop and ripple in rhythm with
+// the sound. As the playhead strikes a note we (1) give it an elastic POP — a bouncy scale
+// overshoot that settles — and (2) emit an expanding RIPPLE RING in its color. GSAP drives
+// the easing/timing; the canvas render just reads the tweened values each frame.
+const popMap = new Map();                          // key c*ROWS+r → {s:scale} (1 = at rest)
+function popScale(c,r){ const o=popMap.get(c*ROWS+r); return o ? o.s : 1; }
+const beat = { p:0 };                              // global downbeat pulse 0..1 (GSAP-driven each bar)
+const RINGS = Array.from({length:96}, ()=>({active:false, x:0, y:0, r:0, a:0, color:'#fff', lw:2}));
+let ringHead = 0;
+function fireHit(c,r,ci){
+  if (typeof gsap === 'undefined') return;
+  // CASCADE: notes stacked in the same column pop in a quick staggered wave (top→down)
+  // instead of all at once — a little ripple of energy, the Fischinger column gesture.
+  let order=0; for (let rr=r+1; rr<ROWS; rr++) if (grid[c][rr]>=0) order++;
+  const delay = Math.min(order*0.035, 0.22);
+  // (1) elastic pop on the note — a bouncy overshoot that settles back to rest
+  let o = popMap.get(c*ROWS+r); if (!o){ o={s:1}; popMap.set(c*ROWS+r, o); }
+  gsap.fromTo(o, { s:1.55 }, { s:1, duration:0.9, delay, ease:'elastic.out(1,0.4)', overwrite:true });
+  // (2) expanding ripple ring in the note's color
+  const ring = RINGS[ringHead]; ringHead = (ringHead+1) % RINGS.length;
+  const base = Math.min(cellW, cellH);
+  gsap.killTweensOf(ring);
+  ring.active=true; ring.x=(c+0.5)*cellW; ring.y=(ROWS-1-r)*cellH+cellH/2;
+  ring.color=renderColors[ci]||mood.notes[ci].color; ring.lw=Math.max(1.5, base*0.05);
+  gsap.fromTo(ring, { r:base*0.5, a:0.5 }, { r: base*3.0, a:0, duration:1.0, delay, ease:'power2.out', onComplete(){ ring.active=false; } });
+}
+function drawRings(){
+  for (const ring of RINGS){
+    if (!ring.active || ring.a<=0.003) continue;
+    ctx.globalAlpha = ring.a; ctx.strokeStyle = ring.color; ctx.lineWidth = ring.lw;
+    ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI*2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+// BLOOM-IN: a freshly painted note grows in from small with a slight overshoot, instead of
+// just appearing — so placing paint feels alive. Reuses the same popScale the playhead pops.
+function bloomInCell(c,r){
+  if (typeof gsap === 'undefined') return;
+  let o = popMap.get(c*ROWS+r); if (!o){ o={s:1}; popMap.set(c*ROWS+r, o); }
+  gsap.fromTo(o, { s:0.3 }, { s:1, duration:0.4, ease:'back.out(1.7)', overwrite:true });
+}
+// ANTICIPATION: the column the moving playhead currently sits in/approaches (read by
+// drawCloud); notes wind up slightly just before they're struck. -999 = playhead not moving.
+let drawPhCol = -999;
+
+// A soft, edgeless color cloud drawn to the offscreen layer (no shape). The
+// whole layer is blurred when composited, so clouds melt into one another.
+function drawCloud(ci,c,r,L,now){
+  const color=renderColors[ci]||mood.notes[ci].color, ph=c*0.9+r*1.7;
+  const cl=CLOUD[ci % CLOUD.length];
+  let pAge=1e9; for (let q=0;q<L;q++){ const a=now-bloom[c+q][r]; if (a<pAge) pAge=a; }  // glow as playhead crosses any cell
+  const pulse=pAge<520 ? (1-pAge/520) : 0;
+  const push=pAge<800 ? Math.exp(-pAge/220)*Math.cos(pAge*0.018) : 0;   // springy: kicked, then settles
+  const breath=Math.sin(now*0.0011+ph);
+  const pitchF=1.1-(r/ROWS)*0.35;   // low notes a bit larger (bass weight), high notes tighter
+  // NOTE SIZE LOGIC: a painted cell renders ~1 grid-cell across with a soft glow halo, so
+  // distinct notes stay legible and only blend at the edges. Radius is anchored to the cell
+  // size × a base fraction, then modulated by per-color character (CLOUD.spread: dark=wider,
+  // light=tighter), pitch (low=bigger), and the play-pulse.
+  const NOTE_SIZE = 1.24;   // base radius as a fraction of a grid cell (single tunable dial)
+  const PRESET_MUL = 5;     // SONGS render notes ~5× larger/blobbier; free painting stays at NOTE_SIZE
+  // anticipation: as the moving playhead nears this column from the left (within one cell),
+  // the note compresses slightly — a wind-up that the pop then releases.
+  let antic=0;
+  if (drawPhCol>=0){ const d=(((c-drawPhCol)%COLS)+COLS)%COLS; if (d>0 && d<1) antic=1-d; }
+  let R=Math.min(cellW,cellH)*NOTE_SIZE*(presetMode?PRESET_MUL:1)*cl.spread*pitchF*(0.92 + 0.06*breath + 0.18*pulse)*popScale(c,r)*(1-0.12*antic);
+  const x0=(c+L/2)*cellW, y0=(ROWS-1-r)*cellH+cellH/2;
+  // curl-ish flow field — the whole field drifts & swirls like slow liquid at rest
+  const ft=now*0.0002;
+  const fx=Math.sin(y0*0.012 + ft*1.2) + 0.5*Math.sin(y0*0.026 - ft*0.8) + Math.cos(x0*0.008 - ft*0.6);
+  const fy=Math.cos(x0*0.012 + ft*1.0) + 0.5*Math.cos(x0*0.024 + ft*0.9) + Math.sin(y0*0.008 + ft*0.7);
+  let cx=x0 + fx*cellW*0.1375;
+  let cy=y0 + fy*cellH*0.1625;
+  let w=R*2 + (L-1)*cellW;
+  // the playhead shoves through like an object, parting the fluid in its wake; the
+  // note then flows back (the spring + the flow field settle it).
+  if (push){
+    const e=Math.abs(push);
+    const hsh=Math.sin(c*12.9898 + r*78.233)*43758.5453, ang=(hsh-Math.floor(hsh))*6.2832;
+    R *= 1+0.5*e; w = R*2+(L-1)*cellW + e*cellW*1.1;
+    cx += (0.9 + 0.5*Math.cos(ang)) * push * cellW*0.85;   // forward shove (travel dir) + splash
+    cy += Math.sin(ang) * push * cellH*0.85;
+  }
+  const a=Math.min(1, (0.92 + 0.08*breath + pulse*0.15) * cl.op * (0.6 + 0.4*vel[c][r]));
+  const g=fxc;
+  g.save(); g.translate(cx,cy); g.scale(w/(R*2),1);
+  const grad=g.createRadialGradient(0,0,0, 0,0,R);
+  grad.addColorStop(0,       rgbaHex(color,a));
+  grad.addColorStop(cl.soft, rgbaHex(color,a*0.78));
+  grad.addColorStop(1,       rgbaHex(color,0));
+  g.fillStyle=grad; g.beginPath(); g.arc(0,0,R,0,Math.PI*2); g.fill();
+  g.restore();
+}
+
+// App render-loop gate: at the click we paint ONE pre-warm frame (appRunning=false → no reschedule)
+// so the canvas is ready under the intro; the continuous loop only starts at the reveal. This stops
+// the app loop from running (double-rAF) behind the opaque intro during the bloom-out → smoother entrance.
+let appRunning=false;
+function draw(){
+  if (appRunning) requestAnimationFrame(draw);
+  fpsFrames++;
+  const _t=performance.now();
+  if (_t-fpsLast>=500){ fpsVal=Math.round(fpsFrames*1000/(_t-fpsLast)); fpsLast=_t; fpsFrames=0; }
+  if (!W || !mood) return;
+  ctx.globalCompositeOperation='source-over';
+  if (bgCache) ctx.drawImage(bgCache, 0,0, W, H);     // pre-rendered field
+  else { ctx.fillStyle=mood.bg[0]; ctx.fillRect(0,0,W,H); }
+
+  // notes → soft color clouds on an offscreen layer, then composited with a big
+  // blur so they melt into one continuous, edgeless gradient field (no shapes).
+  const now=performance.now();
+  { const _T=Tone.getTransport(); drawPhCol = playing ? ((_T.ticks/(_T.PPQ/4)) % COLS) : -999; }  // for anticipation
+  fxc.setTransform(DS,0,0,DS,0,0);              // draw clouds into the low-res buffer
+  fxc.clearRect(0,0,W,H);
+  for (let r=0;r<ROWS;r++){
+    for (let c=0;c<COLS;c++){
+      const ci=grid[c][r]; if (ci<0) continue;
+      if (c>0 && grid[c-1][r]===ci) continue;     // only the start of a run
+      let L=1; while (c+L<COLS && grid[c+L][r]===ci) L++;
+      drawCloud(ci,c,r,L,now);
+    }
+  }
+  // upscale the low-res cloud buffer → smooth, melted field with no costly filter
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='low';
+  ctx.drawImage(fx, 0,0,fx.width,fx.height, 0,0, W, H);
+  drawRings();   // Fischinger ripple rings on top of the field (GSAP-driven)
+  // playhead — driven by the TRANSPORT TICK CLOCK (tempo-independent), NOT seconds.
+  // seconds ÷ current stepSec drifts after any BPM change (elapsed time was partly
+  // at the old tempo), which desynced the line from the gStep-based triggering. Ticks
+  // count 16th-steps directly, so the line tracks the trigger clock through tempo changes.
+  // (+ half a cell so it centres on the note's glow.)
+  const Tp=Tone.getTransport();
+  const stepPos=Tp.ticks/(Tp.PPQ/4);                       // fractional 16th-note position
+  if (notesExist()){   // the playhead stays hidden until the first note is placed
+    const px=((stepPos % COLS) + 0.5)*cellW;
+    // a LIVING playhead: a soft comet-trail glow fading out behind the sweep (to the left),
+    // and a brighter leading line — both pulsing a touch brighter on the bar's downbeat.
+    const trailW = Math.max(46, cellW*1.6);
+    const tg = ctx.createLinearGradient(px-trailW, 0, px, 0);
+    tg.addColorStop(0, 'rgba(255,255,255,0)');
+    tg.addColorStop(1, `rgba(255,255,255,${0.07 + 0.11*beat.p})`);
+    ctx.fillStyle = tg; ctx.fillRect(px-trailW, 0, trailW, H);
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(0.9, 0.4 + 0.45*beat.p)})`;
+    ctx.fillRect(px-0.9, 0, 1.8, H);     // bright leading line
+  }
+
+  if (DEBUG){
+    const raw=Tone.getContext().rawContext, la=Tone.getContext().lookAhead;
+    const phCol=stepPos%COLS;
+    if (flashCol>=0){ const fa=Math.max(0,1-(performance.now()-flashT)/250);
+      if (fa>0){ ctx.fillStyle=`rgba(0,255,120,${0.85*fa})`; ctx.fillRect((flashCol+0.5)*cellW-1.5,0,3,H); } } // green: actual play (should sit under the white playhead)
+    ctx.fillStyle='rgba(0,0,0,0.66)'; ctx.fillRect(6,6,250,158);
+    ctx.fillStyle='#7CFC00'; ctx.font='12px monospace'; ctx.textBaseline='top';
+    [`FPS ${fpsVal}`,
+     `bpm ${Tone.getTransport().bpm.value.toFixed(1)}`,
+     `transport.s ${Tone.getTransport().seconds.toFixed(3)}`,
+     `playhead col ${phCol.toFixed(2)}  (white)`,
+     `last-play col ${flashCol}  (green)`,
+     `lookAhead ${la.toFixed(3)} s`,
+     `baseLatency ${(raw.baseLatency||0).toFixed(3)} s`,
+     `outputLatency ${(raw.outputLatency!=null?raw.outputLatency:0).toFixed(3)} s`,
+    ].forEach((l,i)=>ctx.fillText(l,12,12+i*16));
+  }
+}
+
+// ---- Painting ------------------------------------------------------------
+let painting=false, strokeMode='paint', lastC=-1, lastR=-1;
+let curBold=0.85, curRat=1, lastT=0, lastPX=0, lastPY=0;   // stroke-speed → boldness + ratchet flurry
+const ERASE_R = 1;   // broad eraser (right-click) clears a (2R+1) neighbourhood
+function cellAt(e){ const r=cv.getBoundingClientRect();
+  return [ Math.floor((e.clientX-r.left)/cellW), ROWS-1-Math.floor((e.clientY-r.top)/cellH) ]; }
+function paintCell(c,r){
+  if (c<0||c>=COLS||r<0||r>=ROWS) return;
+  if (strokeMode==='paint'){ const fresh=grid[c][r]<0; grid[c][r]=curColor; vel[c][r]=curBold; rat[c][r]=curRat; if (fresh) bloomInCell(c,r); return; }
+  if (strokeMode==='erasePrecise'){ grid[c][r]=-1; return; }   // tapped a note → remove just it
+  for (let dc=-ERASE_R; dc<=ERASE_R; dc++) for (let dr=-ERASE_R; dr<=ERASE_R; dr++){
+    const cc=c+dc, rr=r+dr;
+    if (cc>=0&&cc<COLS&&rr>=0&&rr<ROWS) grid[cc][rr]=-1;
+  }
+}
+function paintLine(c0,r0,c1,r1){
+  const steps=Math.max(Math.abs(c1-c0),Math.abs(r1-r0))||1;
+  for (let i=0;i<=steps;i++) paintCell(Math.round(c0+(c1-c0)*i/steps), Math.round(r0+(r1-r0)*i/steps));
+}
+function down(e){ if (Tone.getContext().state==='suspended') Tone.start();
+  hideUndo();   // a new stroke invalidates the cleared-painting snapshot
+  const rct=cv.getBoundingClientRect();
+  lastT=performance.now(); lastPX=e.clientX-rct.left; lastPY=e.clientY-rct.top;
+  curBold=0.85; curRat=1;                    // a single tap lands fairly bold, no ratchet
+  const [c,r]=cellAt(e);
+  // decide the stroke once, by what you clicked:
+  if (e.button===2 || e.buttons===2) strokeMode='eraseBroad';             // right-click = broad eraser
+  else if (grid[c][r] >= 0) strokeMode='erasePrecise';                    // clicked a note → toggle it off
+  else strokeMode='paint';                                               // empty → paint
+  painting=true; paintCell(c,r); lastC=c; lastR=r; }
+function move(e){ if (!painting) return;
+  const rct=cv.getBoundingClientRect();
+  const px=e.clientX-rct.left, py=e.clientY-rct.top, nowT=performance.now();
+  const speed=Math.hypot(px-lastPX, py-lastPY)/Math.max(1, nowT-lastT);   // px per ms
+  curBold=Math.max(0.2, Math.min(1, 1.15 - speed*0.45));                  // slow=bold, fast=light
+  curRat = speed<0.9 ? 1 : speed<1.5 ? 2 : speed<2.2 ? 3 : 4;             // single until you flick → fast brush = ratchet flurry
+  lastT=nowT; lastPX=px; lastPY=py;
+  const [c,r]=cellAt(e);
+  if (c===lastC && r===lastR) return; paintLine(lastC,lastR,c,r); lastC=c; lastR=r; }
+function up(){ painting=false; strokeMode='paint'; lastC=lastR=-1;
+  if (notesExist()){ if (!playing && !userPaused) setPlaying(true); }   // first note starts the playhead
+  else parkPlayhead(); }                                                 // emptied → park at the start
+cv.addEventListener('pointerdown', e=>{
+  try { cv.setPointerCapture(e.pointerId); } catch(_){}   // NotFoundError if the pointer already lifted (touch/pen race) — paint anyway
+  down(e); });
+cv.addEventListener('pointermove', move);
+cv.addEventListener('pointerup', up);
+cv.addEventListener('pointercancel', up);
+cv.addEventListener('contextmenu', e=>e.preventDefault());   // allow right-click erase
+
+// Hover cursor: an ERASER over an already-placed note (clicking it removes it), otherwise
+// the crosshair paint cursor. The eraser SVG is built inline (encoded at runtime) with a
+// dark halo so it stays visible on any mood color; hotspot at its erasing tip.
+const ERASER_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'>"
+  + "<g fill='none' stroke='black' stroke-opacity='0.55' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'>"
+  + "<path d='m7 21-4.3-4.3a2 2 0 0 1 0-2.8l9.6-9.6a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8L13 21'/><path d='M22 21H7'/></g>"
+  + "<g fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+  + "<path d='m7 21-4.3-4.3a2 2 0 0 1 0-2.8l9.6-9.6a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8L13 21'/><path d='M22 21H7'/></g></svg>";
+const ERASE_CURSOR = "url(\"data:image/svg+xml," + encodeURIComponent(ERASER_SVG) + "\") 5 23, pointer";
+cv.addEventListener('pointermove', e=>{
+  if (painting) return;                                  // mid-stroke: leave the cursor be
+  const [c,r] = cellAt(e);
+  const onNote = c>=0 && c<COLS && r>=0 && r<ROWS && grid[c][r] >= 0;
+  cv.style.cursor = onNote ? ERASE_CURSOR : 'crosshair';
+});
+window.addEventListener('keydown', e=>{ if (e.key==='d'||e.key==='D') DEBUG=!DEBUG; });   // timing debug
+
+// --- Songs (melody + chords) from song-data.js, mapped onto a long timeline ---
+function loadSongData(S){
+  if (!S) return;
+  selectMood(S.mood||0);
+  presetMode = true;
+  const SPB = S.stepsPerBeat;
+  setGridCols(Math.ceil(S.totalBeats * SPB));      // long loop for the whole verse
+  const scale = S.scaleType==='minor' ? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+  const semi = sd => { const a = sd[0]==='#'?1 : sd[0]==='b'?-1 : 0; const d = a? sd.slice(1) : sd; return (scale[(+d)-1]||0)+a; };
+  const sems = S.melody.map(n => semi(n[2]) + n[3]*12);
+  const LOW = Math.min(...sems);
+  PITCH = Array.from({length:ROWS}, (_,r)=> Tone.Frequency(S.tonic+'4').transpose(LOW + r).toNote());
+  const toRow = s => { let r = s - LOW; while (r<0) r+=12; while (r>ROWS-1) r-=12; return r; };
+  // melody — the brightest voice (color 4)
+  S.melody.forEach(n => { const col = Math.round((n[0]-1)*SPB); const r = toRow(semi(n[2]) + n[3]*12);
+    if (col>=0 && col<COLS){ grid[col][r]=4; vel[col][r]=0.95; rat[col][r]=1; } });
+  // chords — diatonic triad + 7th (bass + pads: colors 0,1,2)
+  const voiceCol = [0,1,2,2];
+  const placeChord = (beat,root) => { const col=Math.round((beat-1)*SPB); if (col<0||col>=COLS) return;
+    [0,2,4,6].forEach((step,i)=>{ const idx=(root-1)+step; const t=scale[idx%7]+Math.floor(idx/7)*12; const r=toRow(t-12);
+      if (grid[col][r] < 0){ grid[col][r]=voiceCol[i]; vel[col][r]=0.68; rat[col][r]=1; } }); };
+  if (S.chords) S.chords.forEach(([b,root]) => placeChord(b,root));
+  else if (S.chordBlocks) S.chordBlocks.forEach(([start,len,root]) => { for (let b=start; b<start+len; b+=S.chordEveryBeats) placeChord(b,root); });
+  if (started){ userPaused=false; Tone.getTransport().bpm.rampTo(S.tempo,0.3);
+    animateTempoTo(S.tempo, 0.3);   // tick the readout to the song's tempo, matching the audio ramp
+    setPlaying(true); }
+}
+// ---- Songs (the shuffle button's pool) -----------------------------------
+const SONGS = [
+  { data: window.SONG_VERSE,  name:'Super Rich Kids',        artist:'Frank Ocean', mood:2, art:'art/super-rich-kids.jpg' },
+  { data: window.SONG_YDKMN,  name:"You Don’t Know My Name", artist:'Alicia Keys', mood:1, art:'art/you-dont-know-my-name.jpg' },
+  { data: window.SONG_SMOOTH, name:'Smooth Operator',        artist:'Sade',        mood:0, art:'art/smooth-operator.jpg' },
+];
+let currentSong = -1;
+function selectSong(i){ loadSongData(SONGS[i].data); currentSong = i; refreshMoodArt(); }
+// The menu's "Surprise me": load a RANDOM song (never the one already loaded),
+// switching to its mood and playing it.
+function loadRandomSong(){
+  if (!SONGS.length) return;
+  let i; do { i = Math.floor(Math.random()*SONGS.length); } while (SONGS.length>1 && i===currentSong);
+  selectSong(i);
+}
+document.getElementById('songsBtn').addEventListener('click', loadRandomSong);
+
+// ---- Overflow menu ---------------------------------------------------------
+// The second-order actions (surprise me · duplicate · clear · about) live here as
+// labeled rows. Selecting a row, clicking outside, or Escape closes it.
+const moreMenuEl = document.getElementById('moreMenu');
+function closeMenu(){ moreMenuEl.classList.remove('open'); }
+// CLICK-THROUGH SHIELD: on touch, the tap that closes the menu gets its synthesized
+// follow-up click re-targeted to whatever the menu was covering — on the portrait
+// dock that's a mood swatch (tap "Clear canvas" → mood switches instead, wiping the
+// canvas and the undo pill). A transparent overlay eats the tap's ghost events for
+// a beat whenever the menu closes from a tap. Keyboard (Escape) needs no shield.
+const tapShield = document.createElement('div');
+tapShield.style.cssText = 'position:fixed;inset:0;z-index:50;display:none;';
+document.body.appendChild(tapShield);
+function raiseShield(){ tapShield.style.display='block'; setTimeout(()=>{ tapShield.style.display='none'; }, 400); }
+document.getElementById('moreBtn').addEventListener('click', ()=> moreMenuEl.classList.toggle('open'));
+moreMenuEl.addEventListener('click', e=>{ if (e.target.closest('.menu-row')){ closeMenu(); raiseShield(); } });
+document.addEventListener('pointerdown', e=>{
+  if (!moreMenuEl.classList.contains('open')) return;   // shield only when a real dismissal happens
+  if (!(e.target instanceof Element) || !e.target.closest('.menu-wrap')){ closeMenu(); raiseShield(); }
+});
+window.addEventListener('keydown', e=>{ if (e.key==='Escape') closeMenu(); });
+
+// ---- About card -----------------------------------------------------------
+const aboutEl = document.getElementById('aboutModal');
+const closeAbout = ()=> aboutEl.classList.remove('open');
+document.getElementById('aboutBtn').addEventListener('click', ()=> aboutEl.classList.add('open'));
+document.getElementById('aboutClose').addEventListener('click', closeAbout);
+aboutEl.addEventListener('click', e=>{ if (!e.target.closest('.about-card')) closeAbout(); });   // click anywhere outside the card
+window.addEventListener('keydown', e=>{ if (e.key==='Escape') closeAbout(); });
+
+// ---- UI ------------------------------------------------------------------
+const moodsEl=document.getElementById('moods'), paletteEl=document.getElementById('palette');
+const moodSwatches=[];
+// The dock lists the moods starting from whichever one the intro landed on (rebuilt at Play).
+// Each swatch carries its REAL mood index in dataset.mood, so display order is free.
+function buildMoodSwatches(first){
+  moodsEl.innerHTML=''; moodSwatches.length=0;
+  for (let k=0;k<MOODS.length;k++){
+    const i=(first+k)%MOODS.length, m=MOODS[i];
+    const s=document.createElement('div'); s.className='swatch mood'+(k===0?' sel':'');
+    s.dataset.mood=i; s.style.setProperty('--c', m.bg[0]); s.dataset.tip=m.name; s.setAttribute('aria-label', m.name);
+    s.addEventListener('click', ()=>selectMood(i));
+    moodsEl.appendChild(s); moodSwatches.push(s);
+  }
+}
+buildMoodSwatches(0);
+// When a song is loaded, its mood's swatch shows that song's album cover instead of
+// the flat mood color (the swatch becomes "the record you're playing"). Free painting
+// / clearing reverts it to the plain color puck.
+function refreshMoodArt(){
+  const song = currentSong>=0 ? SONGS[currentSong] : null;
+  moodSwatches.forEach(el=>{
+    const i = +el.dataset.mood;
+    if (song && song.mood===i && song.art){
+      el.style.backgroundImage = "linear-gradient(180deg,rgba(255,255,255,0.16),rgba(0,0,0,0.22)), url('"+song.art+"')";
+      el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
+      el.dataset.tip = song.name+' · '+song.artist;
+    } else {
+      el.style.backgroundImage = ''; el.style.backgroundSize = ''; el.style.backgroundPosition = '';
+      el.dataset.tip = MOODS[i].name;
+    }
+  });
+}
+function renderNotePalette(){
+  paletteEl.innerHTML='';
+  mood.notes.forEach((n,i)=>{
+    const s=document.createElement('div'); s.className='swatch'+(i===0?' sel':'');
+    s.style.setProperty('--c', n.color);
+    s.addEventListener('click', ()=>{
+      curColor=i;
+      paletteEl.querySelectorAll('.swatch').forEach((el,k)=>el.classList.toggle('sel', k===i));
+    });
+    paletteEl.appendChild(s);
+  });
+}
+// Play / pause the transport. Pausing freezes the playhead + triggering but keeps the
+// painted mix (the grid) intact; play resumes from where it left off.
+const ppEl=document.getElementById('playpause');
+let playing=false, userPaused=false;
+// The playhead only moves while there are notes to play; it parks at the start of an
+// empty canvas. Painting the first note starts it; clearing parks it again.
+function notesExist(){ for (let c=0;c<COLS;c++){ for (let r=0;r<ROWS;r++) if (grid[c][r]>=0) return true; } return false; }
+function setPlaying(on){ const T=Tone.getTransport();
+  if (on){ if (T.state!=='started') T.start(); } else { T.pause(); }
+  playing=on; ppEl.classList.toggle('playing', on); }
+function parkPlayhead(){ Tone.getTransport().stop(); playing=false; userPaused=false; ppEl.classList.remove('playing'); }
+ppEl.addEventListener('click', ()=>{
+  if (!playing && !notesExist()) return;        // nothing to play yet
+  const next=!playing; setPlaying(next); userPaused=!next; });
+// spacebar toggles play/pause too (ignored while typing in a field)
+window.addEventListener('keydown', e=>{
+  if (e.code==='Space' && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){
+    e.preventDefault(); ppEl.click(); }
+});
+// ---- Clear + undo ----------------------------------------------------------
+// Clear is the one destructive act; a 5s whisper above the dock offers the way
+// back. The snapshot dies on timeout, new painting, mood switch, or song load.
+const undoBarEl = document.getElementById('undoBar');
+let undoSnap = null, undoTimer = 0;
+function hideUndo(){ undoSnap = null; clearTimeout(undoTimer); undoBarEl.classList.remove('show'); }
+document.getElementById('clear').addEventListener('click', ()=>{
+  if (notesExist()){
+    undoSnap = { cols:COLS, preset:presetMode, pitch:PITCH, song:currentSong,
+      grid:grid.map(c=>Int8Array.from(c)), vel:vel.map(c=>Float32Array.from(c)), rat:rat.map(c=>Uint8Array.from(c)) };
+    clearTimeout(undoTimer); undoBarEl.classList.add('show');
+    undoTimer = setTimeout(hideUndo, 5000);
+  }
+  if (COLS!==BASE_COLS) setGridCols(BASE_COLS); else for (let c=0;c<COLS;c++) grid[c].fill(-1);
+  presetMode = false; PITCH = moodCache[curMood].p;   // a loaded song replaced the pitch map — restore this mood's scale
+  currentSong = -1; refreshMoodArt();
+  parkPlayhead(); });
+document.getElementById('undoBtn').addEventListener('click', ()=>{
+  if (!undoSnap) return;
+  setGridCols(undoSnap.cols);
+  for (let c=0;c<COLS;c++){ grid[c].set(undoSnap.grid[c]); vel[c].set(undoSnap.vel[c]); rat[c].set(undoSnap.rat[c]); }
+  presetMode = undoSnap.preset; PITCH = undoSnap.pitch; currentSong = undoSnap.song;
+  refreshMoodArt(); hideUndo();
+  if (!userPaused) setPlaying(true);                   // the painting is back — let it play
+});
+// Duplicate timeline (×2): grey the button out once the cap is reached.
+const dupBtnEl = document.getElementById('dupBtn');
+function refreshDupBtn(){ if (dupBtnEl) dupBtnEl.classList.toggle('disabled', COLS*2 > MAX_COLS); }
+dupBtnEl.addEventListener('click', duplicateTimeline);
+refreshDupBtn();
+function setTempoFill(){ const t=document.getElementById('tempo'); if(!t) return;
+  const pct=(t.value-t.min)/(t.max-t.min)*100; t.style.setProperty('--p', pct+'%'); }
+// Odometer: tick the tempo readout + slider TO a new BPM over `dur`, matching the audio's bpm.rampTo,
+// instead of snapping. Semantic — the number visibly does what the sound does. (dur 0 = snap.)
+function animateTempoTo(bpm, dur){
+  const t=document.getElementById('tempo'), v=document.getElementById('vTempo'); if(!t||!v) return;
+  const set=n=>{ const r=Math.round(n); t.value=r; v.textContent=r; setTempoFill(); };
+  const from=+t.value||bpm;
+  if (!dur || typeof gsap==='undefined'){ set(bpm); return; }
+  const o={n:from};
+  gsap.to(o, { n:bpm, duration:dur, ease:'power2.out', overwrite:true,
+    onUpdate(){ set(o.n); }, onComplete(){ set(bpm); } });
+}
+document.getElementById('tempo').addEventListener('input', e=>{ document.getElementById('vTempo').textContent=e.target.value; setTempoFill();
+  if (started) Tone.getTransport().bpm.rampTo(+e.target.value,0.2); });
+function dbFromPct(p){ return p<=0 ? -60 : (-40 + (p/100)*40); }
+
+// ---- Intro: a living, blurry preview that entices the user to press play ----------------------
+// The note LAYOUT of whichever song has the most notes (x = time, y = pitch) renders as big,
+// soft, drifting color-clouds while the field CYCLES through the three moods. Whatever mood the
+// intro is showing when Play is tapped becomes the app's starting mood (and the first swatch in
+// the dock), so the hand-off is always seamless. Visual only — no audio, runs on its own rAF.
+const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT_MS:700,   // EXIT_MS re-synced from ARRIVE below
+  stop(){ if (this.raf){ cancelAnimationFrame(this.raf); this.raf=0; } },
+  // on Tap: bloom the notes OUT (swell + fade into the field), then run `done` — so we don't hard-cut
+  // to a blank canvas. The field stays, so once the notes are gone it matches the app's blank field.
+  bloomOut(done){ if (!this.raf){ done && done(); return; } this._done=done; this.exiting=true; } };
+(function initIntro(){
+  const host=document.getElementById('startBg'), cv=document.getElementById('introCv');
+  if (!cv || !host) return;
+  const ctx=cv.getContext('2d');
+  const songs=[window.SONG_VERSE, window.SONG_SMOOTH, window.SONG_YDKMN].filter(Boolean);
+  if (!songs.length) return;
+  const S=songs.reduce((a,b)=> ((b.melody?b.melody.length:0) > (a.melody?a.melody.length:0)) ? b : a);
+  // The field cycles: hold each mood ~10s, then a slow ~5s crossfade to the next.
+  // The blend is a component DISSOLVE (not a hue-wheel sweep): midpoints stay muted, so the
+  // screen never shows a new hue — no teal between blue and green, no magenta near red.
+  const CYCLE = 15000, MBLEND = 5000;
+  const mixHex = (a, b, f) => { if (f <= 0) return a; if (f >= 1) return b;
+    const A = hexToRgb(a), B = hexToRgb(b), h = v => ('0'+Math.round(v).toString(16)).slice(-2);
+    return '#' + h(A.r+(B.r-A.r)*f) + h(A.g+(B.g-A.g)*f) + h(A.b+(B.b-A.b)*f); };
+  const titleEl = document.getElementById('startTitle'), tagEl = document.getElementById('startTag');
+  let lastInk = '';
+  // note layout → blobs: x by time, y by pitch (low→bottom), color by pitch band (dark→light)
+  const scale = S.scaleType==='minor' ? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+  const semi = sd => { const a=sd[0]==='#'?1 : sd[0]==='b'?-1 : 0; const d=a?sd.slice(1):sd; return (scale[(+d)-1]||0)+a; };
+  const sems = S.melody.map(n=> semi(n[2]) + n[3]*12);
+  const LO=Math.min(...sems), span=Math.max(1, Math.max(...sems)-LO);
+  const blobs = S.melody.map((n,i)=>{ const pf=(semi(n[2])+n[3]*12-LO)/span;   // 0 low … 1 high
+    return { x:(n[0]-1)/S.totalBeats, y:0.16+0.68*(1-pf), ci:Math.max(0,Math.min(4,Math.round(pf*4))),
+             ph:i*1.7, sp:0.6+(i%5)*0.13 }; });
+  const IS=0.5;   // render at half-res then upscale (CSS) → extra cheap blur on the soft gradients
+  function frame(t){
+    const w=host.clientWidth, h=host.clientHeight;
+    if (!w || !h){ introState.raf=requestAnimationFrame(frame); return; }
+    const bw=Math.round(w*IS), bh=Math.round(h*IS);
+    if (cv.width!==bw || cv.height!==bh){ cv.width=bw; cv.height=bh; }
+    // field: blend between the current and the next mood on the fixed cycle
+    const seg = Math.floor(t/CYCLE) % MOODS.length, nxt = (seg+1) % MOODS.length;
+    const u = (t % CYCLE)/CYCLE, hold = 1 - MBLEND/CYCLE;
+    let f = u <= hold ? 0 : (u-hold)/(1-hold);
+    f = f*f*f*(f*(f*6-15)+10);                             // smootherstep — tide-like, no visible start/stop
+    introState.mood = f < 0.5 ? seg : nxt;                 // what Play will land on
+    const bg0 = mixHex(MOODS[seg].bg[0], MOODS[nxt].bg[0], f);
+    const bg1 = mixHex(MOODS[seg].bg[1], MOODS[nxt].bg[1], f);
+    const pal = MOODS[seg].notes.map((n,i)=> mixHex(n.color, MOODS[nxt].notes[i].color, f));
+    // type: white carrying an 8% tint of the field's current color — barely noticeable,
+    // just enough that the type feels dipped in the same light as the canvas
+    const ink = mixHex('#ffffff', bg0, 0.08);
+    if (ink !== lastInk && titleEl){
+      titleEl.style.color = ink; tagEl.style.color = ink + 'd9'; lastInk = ink;   // tagline at 85% — it defers to the wordmark
+      // the blurred backstop BEHIND the canvas (its glow bleeds through the canvas's soft
+      // blurred edge) and the dark page surround follow the cycle too
+      host.style.setProperty('--intro-c0', scaleHsl(bg0,1.12,0.96));
+      host.style.setProperty('--intro-c1', bg0);
+      host.style.setProperty('--intro-c2', bg1);
+      // the Albers ground, the Play puck and the (about-to-reveal) dock chrome all follow the
+      // cycle's temperature — same formulas selectMood uses, so the hand-off is seamless
+      const ds = document.documentElement.style, hh = Math.round(hexToHsl(bg0).h);
+      ds.setProperty('--bg', 'hsl('+hh+' 45% 10%)');
+      ds.setProperty('--btn-hi',  'hsl('+hh+' 15% 12.5%)'); ds.setProperty('--btn-lo',  'hsl('+hh+' 17% 9.5%)');
+      ds.setProperty('--dock-hi', 'hsl('+hh+' 15% 10.5%)'); ds.setProperty('--dock-lo', 'hsl('+hh+' 18% 7%)');
+    }
+    const g=ctx.createRadialGradient(bw*0.5,bh*0.42,0, bw*0.5,bh*0.42, Math.max(bw,bh)*0.72);
+    g.addColorStop(0, scaleHsl(bg0,1.12,0.96)); g.addColorStop(0.5, bg0); g.addColorStop(1, bg1);
+    ctx.fillStyle=g; ctx.fillRect(0,0,bw,bh);
+    // exit "bloom-out": on Tap the notes gently swell and fade, dissolving into the field. Kept
+    // MODEST — a big swell × 84 blobs × upscale+blur spiked the frame cost and stuttered the climax.
+    if (introState.exiting && !introState.exitStart) introState.exitStart=t;
+    const e = introState.exiting ? Math.min(1,(t-introState.exitStart)/introState.EXIT_MS) : 0;
+    const eo = e*(2-e), fade = 1-e;                          // eo = easeOut growth · fade = note opacity
+    // clouds — big, soft, drifting & breathing (bigger + more motion than the app, per the intro brief)
+    const md=Math.min(bw,bh), drift=md*0.15, sw=t*0.00012;   // sw = slow global swirl of the whole field (drift amp −25%)
+    if (fade > 0.02) for (const b of blobs){                 // once faded out, stop drawing (no giant faint fills)
+      const pulse=1+0.315*Math.sin(t*0.0020 + b.ph);
+      let dx=Math.sin(t*0.00052*b.sp + b.ph)*drift + Math.sin(t*0.00110*b.sp + b.ph*2.1)*drift*0.6;
+      let dy=Math.cos(t*0.00045*b.sp + b.ph*1.3)*drift + Math.cos(t*0.00095*b.sp + b.ph*1.7)*drift*0.6;
+      const cs=Math.cos(sw), sn=Math.sin(sw);                 // rotate each blob's drift → swirling motion
+      const cx=b.x*bw + dx*cs - dy*sn, cy=b.y*bh + dx*sn + dy*cs;
+      const R=md*0.17*pulse*(1+eo*0.55), col=pal[b.ci];   // gentle swell as it blooms out
+      const rg=ctx.createRadialGradient(cx,cy,0, cx,cy,R);
+      rg.addColorStop(0, rgbaHex(col,0.60*fade)); rg.addColorStop(0.5, rgbaHex(col,0.24*fade)); rg.addColorStop(1, rgbaHex(col,0));
+      ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+    }
+    if (introState.exiting && e>=1){ const d=introState._done; introState.stop(); if (d) d(); return; }
+    introState.raf=requestAnimationFrame(frame);
+  }
+  introState.raf=requestAnimationFrame(frame);
+})();
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * ARRIVAL STORYBOARD — every intro-in / intro→app timing lives in ARRIVE.
+ *
+ * PAGE LOAD (waits for the webfont; 1.5s safety):
+ *     0ms   wordmark blooms in — rises 8px, scale .98 → 1, soft overshoot
+ *   120ms   tagline follows
+ *   240ms   Play follows
+ *
+ * TAP PLAY:
+ *     0ms   audio graph builds; app laid out hidden underneath the intro
+ *     0ms   intro note-clouds bloom out into the field         (700ms)
+ *   700ms   intro overlay crossfades away                      (450ms)
+ *   700ms   canvas settles from full-bleed to framed           (850ms)
+ *  1020ms   dock rises into place                              (550ms)
+ * ─────────────────────────────────────────────────────────────────────────── */
+const ARRIVE = {
+  fontWaitMs: 1500,                                                       // webfont safety timeout
+  entrance: { rise:8, scale:0.98, fade:0.55, settle:0.7, stagger:0.12 },  // lockup bloom-in
+  exitMs: 700,                                                            // intro note bloom-out
+  fade:   0.45,                                                           // intro overlay crossfade
+  settle: 0.85,                                                           // canvas scaleY settle
+  dock:   { rise:0.55, delay:0.32 },                                      // dock entrance
+};
+introState.EXIT_MS = ARRIVE.exitMs;
+
+// The lockup blooms in the way painted notes do — one quiet staggered breath,
+// gated on the webfont (never animate through a font swap) and skipped
+// entirely under prefers-reduced-motion.
+(function introEntrance(){
+  if (typeof gsap === 'undefined' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const els = [document.getElementById('startTitle'), document.getElementById('startTag'),
+               document.querySelector('#start button')].filter(Boolean);
+  if (els.length !== 3) return;
+  const E = ARRIVE.entrance;
+  gsap.set(els, { opacity:0, y:E.rise, scale:E.scale });
+  const go = ()=>{   // overshoot belongs to the movement, not the opacity — two parallel tweens
+    gsap.to(els, { opacity:1, duration:E.fade, ease:'power2.out', stagger:E.stagger });
+    gsap.to(els, { y:0, scale:1, duration:E.settle, ease:'back.out(1.7)', stagger:E.stagger, clearProps:'transform' });
+  };
+  Promise.race([document.fonts.ready, new Promise(r=>setTimeout(r, ARRIVE.fontWaitMs))]).then(go);
+})();
+
+document.getElementById('startBtn').addEventListener('click', async ()=>{
+  await Tone.start();
+  // Build the audio graph + mood NOW, on the tap — it's the heavy step (samplers, 2 reverbs). Doing
+  // it here hides the hitch behind the button press; if it ran at the reveal it stuttered the
+  // bloom-out → blank-canvas hand-off. The bloom + reveal + push-up below then stay pure animation.
+  const landed = introState.mood;           // the mood the cycling intro is showing right now
+  buildMoodSwatches(landed);                 // the dock lists moods starting from the landed one
+  initAudio(landed);
+  const startEl=document.getElementById('start'), app=document.getElementById('app'),
+        wrap=document.getElementById('canvasWrap'), dock=document.querySelector('.dock');
+  // PRE-WARM: bring the app up UNDERNEATH the intro and do the heavy resize() + first paint NOW —
+  // while the opaque intro still covers it (and the tap masks the hitch). Making #start an absolute
+  // overlay lets #app fill the screen without the two flex panels splitting. The reveal then becomes
+  // just dropping the overlay → no resize/paint at the hand-off → no stutter into the canvas.
+  startEl.style.position='absolute'; startEl.style.inset='0'; startEl.style.zIndex='20';
+  app.style.display='flex';
+  // wrap stays at its final CSS rect (bottom:96) so the canvas is SIZED ONCE here; the push-up is a GPU
+  // scaleY transform in reveal() (animating layout `bottom` reflowed every frame → jitter).
+  gsap.set(dock, { opacity: 0, xPercent: -50, yPercent: 60 });   // dock tucked below, hidden behind the intro
+  syncDockGap();                                             // measure the dock → reserve its exact gap (no overlap)
+  resize(); draw();                                          // ← the heavy work, hidden behind the intro
+  // reveal — runs AFTER the intro notes bloom out; the app is already live underneath, so we just
+  // CROSS-FADE the intro overlay out (this also dissolves the blurred-intro → sharp-app difference,
+  // instead of snapping) and animate the push-up. No resize/paint here → no hitch.
+  const reveal = ()=>{
+    // GPU prep: drop the full-screen mix-blend grain for the entrance, and promote the blurred intro to
+    // its own layer so its blur is rasterised ONCE and the fade is compositor-only (not re-blurred/frame).
+    document.body.classList.add('entering');
+    startEl.style.willChange = 'opacity';
+    appRunning = true; draw();                               // paint one fresh frame NOW, then start the loop (no unpainted gap under the fading intro)
+    gsap.to(startEl, { opacity:0, duration:ARRIVE.fade, ease:'power2.out',
+      onComplete(){ startEl.style.display='none'; startEl.style.willChange=''; } });
+    // push-up via GPU transform (scaleY from the top), NOT the layout `bottom` prop. The wrap is already
+    // at its final size; we start it stretched down to the intro's full-height rect (bottom:8) and settle
+    // to 1. Pure compositor → no reflow, and no canvas clear (so no cream flash either).
+    const gap = parseFloat(getComputedStyle(wrap).bottom) || 96;   // actual reserved gap (desktop ~96, mobile taller)
+    const grow = (wrap.clientHeight + gap - 8) / wrap.clientHeight;  // stretch from framed (bottom:gap) to full (bottom:8)
+    gsap.fromTo(wrap, { transformOrigin:'50% 0%', scaleY: grow },
+      { scaleY: 1, duration: ARRIVE.settle, ease: 'power3.inOut', onComplete(){ gsap.set(wrap, { clearProps:'transform' }); } });
+    gsap.to(dock, { opacity: 1, xPercent: -50, yPercent: 0, duration: ARRIVE.dock.rise, delay: ARRIVE.dock.delay, ease: 'power3.out',
+      onComplete(){ gsap.set(dock, { clearProps:'transform' }); document.body.classList.remove('entering'); } });   // restore grain
+  };
+  introState.bloomOut(reveal);   // bloom the intro notes out, THEN reveal the (already-warm) app
+});
+</script>
+</body>
+</html>
