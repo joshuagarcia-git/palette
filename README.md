@@ -1,5 +1,7 @@
 # Palette
 
+**Live: [palette.joshua-garcia.com](https://palette.joshua-garcia.com)**
+
 Paint with color, hear music. Notes are colors on a canvas; a playhead sweeps left to
 right and plays whatever it crosses. Pitch snaps to a scale and time snaps to a grid,
 so anything you paint comes out in key and in time.
