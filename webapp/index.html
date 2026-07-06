@@ -737,6 +737,11 @@ const CLOUD=[
   { spread:0.85, op:0.97, soft:0.90 },
   { spread:0.72, op:1.00, soft:0.90 },   // lightest — tight, bright, pops
 ];
+// SONGS expand the grid ~8-12× (a whole verse of columns), so song-mode notes render ×5
+// to stay blobby despite the narrow cells. Shared by drawCloud (cloud radius) AND fireHit
+// (ripple-ring radius) — both must scale from the same anchor or the rings shrink to
+// specks inside the clouds whenever a song is loaded.
+const PRESET_MUL = 5;
 function resize(){
   dpr = window.devicePixelRatio||1;
   const RS = Math.min(dpr, 1);   // render at 1× — soft glows don't need retina pixels
@@ -842,9 +847,10 @@ function fireHit(c,r,ci){
   // (1) elastic pop on the note — a bouncy overshoot that settles back to rest
   let o = popMap.get(c*ROWS+r); if (!o){ o={s:1}; popMap.set(c*ROWS+r, o); }
   gsap.fromTo(o, { s:1.55 }, { s:1, duration:0.9, delay, ease:'elastic.out(1,0.4)', overwrite:true });
-  // (2) expanding ripple ring in the note's color
+  // (2) expanding ripple ring in the note's color — anchored to the same preset-scaled
+  // base as the clouds, so ring:note proportion holds in song mode too
   const ring = RINGS[ringHead]; ringHead = (ringHead+1) % RINGS.length;
-  const base = Math.min(cellW, cellH);
+  const base = Math.min(cellW, cellH) * (presetMode ? PRESET_MUL : 1);
   gsap.killTweensOf(ring);
   ring.active=true; ring.x=(c+0.5)*cellW; ring.y=(ROWS-1-r)*cellH+cellH/2;
   ring.color=renderColors[ci]||mood.notes[ci].color; ring.lw=Math.max(1.5, base*0.05);
@@ -884,7 +890,6 @@ function drawCloud(ci,c,r,L,now){
   // size × a base fraction, then modulated by per-color character (CLOUD.spread: dark=wider,
   // light=tighter), pitch (low=bigger), and the play-pulse.
   const NOTE_SIZE = 1.24;   // base radius as a fraction of a grid cell (single tunable dial)
-  const PRESET_MUL = 5;     // SONGS render notes ~5× larger/blobbier; free painting stays at NOTE_SIZE
   // anticipation: as the moving playhead nears this column from the left (within one cell),
   // the note compresses slightly — a wind-up that the pop then releases.
   let antic=0;
