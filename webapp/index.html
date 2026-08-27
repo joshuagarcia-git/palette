@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <title>Palette</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -112,8 +112,13 @@
   #moodFade { position:absolute; inset:0; pointer-events:none; opacity:0; z-index:4; border-radius:inherit; }
   /* GPU-composited grain overlay — costs the render loop nothing */
   #grain { position:absolute; inset:0; pointer-events:none; mix-blend-mode:soft-light;
-    opacity:0.5; background-repeat:repeat; background-size:200px 200px;
-    animation:grainshift 3s steps(1,end) infinite; }
+    opacity:0.5; background-repeat:repeat; background-size:200px 200px; }
+  /* The grain TEXTURE stays either way; only its shifting is a motion effect, and a
+     full-screen layer jumping every 3s forever is exactly what the preference exists
+     to stop. Opt in rather than opt out. */
+  @media (prefers-reduced-motion: no-preference){
+    #grain { animation:grainshift 3s steps(1,end) infinite; }
+  }
   @keyframes grainshift {
     0%{background-position:0 0} 12%{background-position:-25px 12px} 25%{background-position:18px -22px}
     37%{background-position:-12px 28px} 50%{background-position:30px 8px} 62%{background-position:-28px -14px}
@@ -1356,6 +1361,10 @@ function dbFromPct(p){ return p<=0 ? -60 : (-40 + (p/100)*40); }
 // soft, drifting color-clouds while the field CYCLES through the three moods. Whatever mood the
 // intro is showing when Play is tapped becomes the app's starting mood (and the first swatch in
 // the dock), so the hand-off is always seamless. Visual only — no audio, runs on its own rAF.
+// Reduced motion holds the intro preview on a single frame. The rAF loop keeps turning
+// so the exit bloom can still fire its completion callback and reveal the app; only the
+// ambient clock is frozen, so nothing drifts, pulses or cycles moods.
+const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)');
 const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT_MS:700,   // EXIT_MS re-synced from ARRIVE below
   stop(){ if (this.raf){ cancelAnimationFrame(this.raf); this.raf=0; } },
   // on Tap: bloom the notes OUT (swell + fade into the field), then run `done` — so we don't hard-cut
@@ -1390,10 +1399,11 @@ const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT
     const w=host.clientWidth, h=host.clientHeight;
     if (!w || !h){ introState.raf=requestAnimationFrame(frame); return; }
     const bw=Math.round(w*IS), bh=Math.round(h*IS);
+    const at = REDUCE_MOTION.matches ? 0 : t;   // ambient time; exit timing still uses t
     if (cv.width!==bw || cv.height!==bh){ cv.width=bw; cv.height=bh; }
     // field: blend between the current and the next mood on the fixed cycle
-    const seg = Math.floor(t/CYCLE) % MOODS.length, nxt = (seg+1) % MOODS.length;
-    const u = (t % CYCLE)/CYCLE, hold = 1 - MBLEND/CYCLE;
+    const seg = Math.floor(at/CYCLE) % MOODS.length, nxt = (seg+1) % MOODS.length;
+    const u = (at % CYCLE)/CYCLE, hold = 1 - MBLEND/CYCLE;
     let f = u <= hold ? 0 : (u-hold)/(1-hold);
     f = f*f*f*(f*(f*6-15)+10);                             // smootherstep — tide-like, no visible start/stop
     introState.mood = f < 0.5 ? seg : nxt;                 // what Play will land on
@@ -1426,11 +1436,11 @@ const introState = { raf:0, mood:0, exiting:false, exitStart:0, _done:null, EXIT
     const e = introState.exiting ? Math.min(1,(t-introState.exitStart)/introState.EXIT_MS) : 0;
     const eo = e*(2-e), fade = 1-e;                          // eo = easeOut growth · fade = note opacity
     // clouds — big, soft, drifting & breathing (bigger + more motion than the app, per the intro brief)
-    const md=Math.min(bw,bh), drift=md*0.15, sw=t*0.00012;   // sw = slow global swirl of the whole field (drift amp −25%)
+    const md=Math.min(bw,bh), drift=md*0.15, sw=at*0.00012;   // sw = slow global swirl of the whole field (drift amp −25%)
     if (fade > 0.02) for (const b of blobs){                 // once faded out, stop drawing (no giant faint fills)
-      const pulse=1+0.315*Math.sin(t*0.0020 + b.ph);
-      let dx=Math.sin(t*0.00052*b.sp + b.ph)*drift + Math.sin(t*0.00110*b.sp + b.ph*2.1)*drift*0.6;
-      let dy=Math.cos(t*0.00045*b.sp + b.ph*1.3)*drift + Math.cos(t*0.00095*b.sp + b.ph*1.7)*drift*0.6;
+      const pulse=1+0.315*Math.sin(at*0.0020 + b.ph);
+      let dx=Math.sin(at*0.00052*b.sp + b.ph)*drift + Math.sin(at*0.00110*b.sp + b.ph*2.1)*drift*0.6;
+      let dy=Math.cos(at*0.00045*b.sp + b.ph*1.3)*drift + Math.cos(at*0.00095*b.sp + b.ph*1.7)*drift*0.6;
       const cs=Math.cos(sw), sn=Math.sin(sw);                 // rotate each blob's drift → swirling motion
       const cx=b.x*bw + dx*cs - dy*sn, cy=b.y*bh + dx*sn + dy*cs;
       const R=md*0.17*pulse*(1+eo*0.55), col=pal[b.ci];   // gentle swell as it blooms out
