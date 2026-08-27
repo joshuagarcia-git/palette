@@ -252,7 +252,7 @@
   .about-modal.open { display:flex; align-items:center; justify-content:center; }
   .about-modal .scrim { position:absolute; inset:0; background:rgba(8,6,5,0.55); }
   .about-card { position:relative; width:min(540px, calc(100% - 32px)); max-height:calc(100% - 32px);
-    overflow:auto; box-sizing:border-box;
+    overflow:auto; overscroll-behavior:contain; box-sizing:border-box;
     background:#1c1916; border:1px solid rgba(255,255,255,0.07); border-radius:28px;
     padding:36px 40px 28px; box-shadow:0 24px 60px rgba(0,0,0,0.55); }
   /* rhythm modeled on stillnight.joshua-garcia.com's about: airy 1.75 body leading,
@@ -1171,11 +1171,44 @@ window.addEventListener('keydown', e=>{ if (e.key==='Escape') closeMenu(); });
 
 // ---- About card -----------------------------------------------------------
 const aboutEl = document.getElementById('aboutModal');
-const closeAbout = ()=> aboutEl.classList.remove('open');
-document.getElementById('aboutBtn').addEventListener('click', ()=> aboutEl.classList.add('open'));
-document.getElementById('aboutClose').addEventListener('click', closeAbout);
+const aboutCardEl = aboutEl.querySelector('.about-card');
+const aboutCloseEl = document.getElementById('aboutClose');
+let aboutReturn = null;   // where focus goes when the card closes
+// Everything in #app except the card itself goes inert while the card is open, so Tab
+// cannot walk the dock behind the scrim and the canvas leaves the accessibility tree.
+const aboutBackdropEls = ()=> [...document.getElementById('app').children].filter(el=>el!==aboutEl);
+const aboutFocusables = ()=> [...aboutCardEl.querySelectorAll('a[href],button,[tabindex]:not([tabindex="-1"])')];
+
+function openAbout(){
+  aboutReturn = document.activeElement;
+  aboutEl.classList.add('open');
+  aboutBackdropEls().forEach(el=> el.inert = true);
+  aboutCloseEl.focus();
+}
+function closeAbout(){
+  if (!aboutEl.classList.contains('open')) return;
+  aboutEl.classList.remove('open');
+  aboutBackdropEls().forEach(el=> el.inert = false);
+  // About is opened from a menu row, and the menu closes behind it. Handing focus back to
+  // a row inside a shut menu would park it somewhere invisible, so fall back to the puck
+  // that opens the menu.
+  let back = aboutReturn;
+  if (back && back.closest && back.closest('.menu') && !moreMenuEl.classList.contains('open')) back = moreBtnEl;
+  if (back && back.isConnected) back.focus();
+  aboutReturn = null;
+}
+document.getElementById('aboutBtn').addEventListener('click', openAbout);
+aboutCloseEl.addEventListener('click', closeAbout);
 aboutEl.addEventListener('click', e=>{ if (!e.target.closest('.about-card')) closeAbout(); });   // click anywhere outside the card
 window.addEventListener('keydown', e=>{ if (e.key==='Escape') closeAbout(); });
+// Keep Tab inside the card while it is open.
+aboutEl.addEventListener('keydown', e=>{
+  if (e.key!=='Tab') return;
+  const f = aboutFocusables(); if (!f.length) return;
+  const first=f[0], last=f[f.length-1];
+  if (e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+});
 
 // ---- UI ------------------------------------------------------------------
 const moodsEl=document.getElementById('moods'), paletteEl=document.getElementById('palette');
