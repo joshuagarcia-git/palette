@@ -203,6 +203,10 @@
 
   .val { font-size:var(--text-2xs); color:#b6afa4; min-width:24px; font-variant-numeric:tabular-nums; }
 
+  /* Available to screen readers, absent from the layout. */
+  .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
+    clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0; }
+
   /* ---- Undo whisper (appears above the dock after Clear — the one destructive act) ---- */
   .undo-bar { position:absolute; left:50%; transform:translateX(-50%) translateY(8px);
     bottom:calc(var(--dock-gap, 96px) + env(safe-area-inset-bottom) + 8px);
@@ -357,7 +361,7 @@
 
   <div id="app">
     <div id="canvasWrap">
-      <canvas id="cv"></canvas>
+      <canvas id="cv" aria-label="Painting canvas. Height is pitch and width is time; a playhead sweeps left to right and plays the colors it crosses."></canvas>
       <div id="grain"></div>
       <div id="moodFade"></div>
     </div>
@@ -371,36 +375,42 @@
           <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
         </button>
         <div class="tempo-row">
-          <input id="tempo" type="range" min="60" max="180" value="115">
+          <input id="tempo" type="range" min="60" max="180" value="115"
+                 aria-label="Tempo" aria-valuetext="115 BPM">
           <span class="val" id="vTempo">115</span>
         </div>
       </div>
       <!-- overflow menu: the second-order actions live behind one puck, as WORDS -->
       <div class="menu-wrap">
-        <button type="button" class="iconbtn" id="moreBtn" data-tip="More" aria-label="More options" aria-haspopup="true">
+        <button type="button" class="iconbtn" id="moreBtn" data-tip="More" aria-label="More options"
+                aria-haspopup="true" aria-expanded="false" aria-controls="moreMenu">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
         </button>
-        <div class="menu" id="moreMenu" role="menu">
-          <button type="button" class="menu-row" id="songsBtn" role="menuitem">
+        <div class="menu" id="moreMenu">
+          <button type="button" class="menu-row" id="songsBtn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
             <span>Surprise me</span>
           </button>
-          <button type="button" class="menu-row" id="dupBtn" role="menuitem">
+          <button type="button" class="menu-row" id="dupBtn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg>
             <span>Duplicate timeline</span>
           </button>
-          <button type="button" class="menu-row warn" id="clear" role="menuitem">
+          <button type="button" class="menu-row warn" id="clear">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
             <span>Clear canvas</span>
           </button>
           <div class="menu-sep"></div>
-          <button type="button" class="menu-row" id="aboutBtn" role="menuitem">
+          <button type="button" class="menu-row" id="aboutBtn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             <span>About</span>
           </button>
         </div>
       </div>
     </div>
+    <!-- The canvas cannot narrate itself, so the moves that change what it holds are
+         announced here. Painting is deliberately NOT announced: a stroke fires dozens of
+         cell writes and would drown the region in chatter. -->
+    <div id="canvasState" class="sr-only" role="status"></div>
     <div id="undoBar" class="undo-bar" role="status">
       <span>Cleared</span>
       <button id="undoBtn" class="undo-btn">Undo</button>
@@ -469,6 +479,7 @@ function duplicateTimeline(){
     rat[c][r]=orr[c][r]; rat[c+old][r]=orr[c][r];
   }
   refreshDupBtn();
+  announceCanvas('Timeline duplicated');
 }
 
 // ---- Sampled-instrument config (must be defined before MOODS, which references it) -------
@@ -1119,7 +1130,7 @@ const SONGS = [
   { data: window.SONG_SMOOTH, name:'Smooth Operator',        artist:'Sade',        mood:0, art:'art/smooth-operator.jpg' },
 ];
 let currentSong = -1;
-function selectSong(i){ loadSongData(SONGS[i].data); currentSong = i; refreshMoodArt(); }
+function selectSong(i){ loadSongData(SONGS[i].data); currentSong = i; refreshMoodArt(); announceCanvas('Loaded'); }
 // The menu's "Surprise me": load a RANDOM song (never the one already loaded),
 // switching to its mood and playing it.
 function loadRandomSong(){
@@ -1133,7 +1144,14 @@ document.getElementById('songsBtn').addEventListener('click', loadRandomSong);
 // The second-order actions (surprise me · duplicate · clear · about) live here as
 // labeled rows. Selecting a row, clicking outside, or Escape closes it.
 const moreMenuEl = document.getElementById('moreMenu');
-function closeMenu(){ moreMenuEl.classList.remove('open'); }
+const moreBtnEl = document.getElementById('moreBtn');
+// The trigger reports open/closed. Route every open and close through here so the
+// announced state cannot drift from the visible one.
+function setMenuOpen(on){
+  moreMenuEl.classList.toggle('open', on);
+  moreBtnEl.setAttribute('aria-expanded', String(on));
+}
+function closeMenu(){ setMenuOpen(false); }
 // CLICK-THROUGH SHIELD: on touch, the tap that closes the menu gets its synthesized
 // follow-up click re-targeted to whatever the menu was covering — on the portrait
 // dock that's a mood swatch (tap "Clear canvas" → mood switches instead, wiping the
@@ -1143,7 +1161,7 @@ const tapShield = document.createElement('div');
 tapShield.style.cssText = 'position:fixed;inset:0;z-index:50;display:none;';
 document.body.appendChild(tapShield);
 function raiseShield(){ tapShield.style.display='block'; setTimeout(()=>{ tapShield.style.display='none'; }, 400); }
-document.getElementById('moreBtn').addEventListener('click', ()=> moreMenuEl.classList.toggle('open'));
+moreBtnEl.addEventListener('click', ()=> setMenuOpen(!moreMenuEl.classList.contains('open')));
 moreMenuEl.addEventListener('click', e=>{ if (e.target.closest('.menu-row')){ closeMenu(); raiseShield(); } });
 document.addEventListener('pointerdown', e=>{
   if (!moreMenuEl.classList.contains('open')) return;   // shield only when a real dismissal happens
@@ -1162,6 +1180,23 @@ window.addEventListener('keydown', e=>{ if (e.key==='Escape') closeAbout(); });
 // ---- UI ------------------------------------------------------------------
 const moodsEl=document.getElementById('moods'), paletteEl=document.getElementById('palette');
 const moodSwatches=[];
+
+// ---- Spoken canvas state ---------------------------------------------------
+// Everything the canvas says about itself. Called from the discrete moves — mood,
+// song, clear, undo, duplicate — never from painting.
+const canvasStateEl = document.getElementById('canvasState');
+function announce(msg){ if (canvasStateEl) canvasStateEl.textContent = msg; }
+function announceCanvas(lead){
+  let n=0; for (let c=0;c<COLS;c++){ for (let r=0;r<ROWS;r++) if (grid[c][r]>=0) n++; }
+  const song = currentSong>=0 ? SONGS[currentSong].name+' by '+SONGS[currentSong].artist : null;
+  // The slider's own value, not the transport's: a mood or song change ramps the BPM over
+  // ~0.4s, so reading the transport here catches it mid-ramp and speaks a number that was
+  // never true. The readout is what the screen shows, so it is what we say.
+  const t = document.getElementById('tempo');
+  announce([lead, song, mood ? mood.name+' mood' : null,
+            (t ? t.value : '?')+' BPM',
+            n+(n===1?' note':' notes')].filter(Boolean).join(', ')+'.');
+}
 // The dock lists the moods starting from whichever one the intro landed on (rebuilt at Play).
 // Each swatch carries its REAL mood index in dataset.mood, so display order is free.
 function buildMoodSwatches(first){
@@ -1171,7 +1206,7 @@ function buildMoodSwatches(first){
     const s=document.createElement('button'); s.type='button'; s.className='swatch mood'+(k===0?' sel':'');
     s.dataset.mood=i; s.style.setProperty('--c', m.bg[0]); s.dataset.tip=m.name; s.setAttribute('aria-label', m.name);
     s.setAttribute('aria-pressed', String(k===0));
-    s.addEventListener('click', ()=>selectMood(i));
+    s.addEventListener('click', ()=>{ selectMood(i); announceCanvas(); });
     moodsEl.appendChild(s); moodSwatches.push(s);
   }
 }
@@ -1247,7 +1282,7 @@ document.getElementById('clear').addEventListener('click', ()=>{
   if (COLS!==BASE_COLS) setGridCols(BASE_COLS); else for (let c=0;c<COLS;c++) grid[c].fill(-1);
   presetMode = false; PITCH = moodCache[curMood].p;   // a loaded song replaced the pitch map — restore this mood's scale
   currentSong = -1; refreshMoodArt();
-  parkPlayhead(); });
+  parkPlayhead(); announce('Canvas cleared.'); });
 document.getElementById('undoBtn').addEventListener('click', ()=>{
   if (!undoSnap) return;
   setGridCols(undoSnap.cols);
@@ -1255,14 +1290,19 @@ document.getElementById('undoBtn').addEventListener('click', ()=>{
   presetMode = undoSnap.preset; PITCH = undoSnap.pitch; currentSong = undoSnap.song;
   refreshMoodArt(); hideUndo();
   if (!userPaused) setPlaying(true);                   // the painting is back — let it play
+  announceCanvas('Painting restored');
 });
 // Duplicate timeline (×2): grey the button out once the cap is reached.
 const dupBtnEl = document.getElementById('dupBtn');
 function refreshDupBtn(){ if (dupBtnEl) dupBtnEl.classList.toggle('disabled', COLS*2 > MAX_COLS); }
 dupBtnEl.addEventListener('click', duplicateTimeline);
 refreshDupBtn();
+// Every path that moves the tempo (the slider, a mood change, a song load) lands here,
+// so this is the one place the spoken value has to be kept in step with the painted one.
+// Without it a screen reader announces a bare "115" with no unit.
 function setTempoFill(){ const t=document.getElementById('tempo'); if(!t) return;
-  const pct=(t.value-t.min)/(t.max-t.min)*100; t.style.setProperty('--p', pct+'%'); }
+  const pct=(t.value-t.min)/(t.max-t.min)*100; t.style.setProperty('--p', pct+'%');
+  t.setAttribute('aria-valuetext', t.value+' BPM'); }
 // Odometer: tick the tempo readout + slider TO a new BPM over `dur`, matching the audio's bpm.rampTo,
 // instead of snapping. Semantic — the number visibly does what the sound does. (dur 0 = snap.)
 function animateTempoTo(bpm, dur){
